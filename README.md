@@ -2,6 +2,9 @@
 
 **An analyst-grade SOC workbench: deterministic triage and enrichment, an agent-persona LLM investigation, and a human sign-off gate that is the only thing allowed to commit a verdict or fire a response action.**
 
+<img width="1434" height="814" alt="Screenshot 2026-07-20 at 12 40 29" src="https://github.com/user-attachments/assets/b1461774-534a-4b90-823a-9176543320f2" />
+
+
 [![CI](https://github.com/tallcyberguy/eksir/actions/workflows/ci.yml/badge.svg)](https://github.com/tallcyberguy/eksir/actions/workflows/ci.yml)
 [![Security scan](https://github.com/tallcyberguy/eksir/actions/workflows/security.yml/badge.svg)](https://github.com/tallcyberguy/eksir/actions/workflows/security.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
@@ -19,6 +22,9 @@ model via Ollama / vLLM).
 
 > **Repo codename:** `isoc` · **Product name:** EKSIR. Packages, routes, and the
 > docker-compose project use `isoc_*` names; the UI and docs say EKSIR.
+
+<img width="1434" height="814" alt="Screenshot 2026-07-20 at 13 21 04" src="https://github.com/user-attachments/assets/502856b4-e9e8-493f-938b-81007c84b67f" />
+
 
 ---
 
