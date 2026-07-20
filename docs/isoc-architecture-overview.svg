@@ -1,0 +1,170 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 1280 720" role="img">
+<title>XAI-SOC system architecture</title>
+<desc>XAI-SOC is a vendor-agnostic, deterministic-first SOC platform for SMEs and MSSPs. Data sources feed a deterministic triage and enrichment gate. When inconclusive, an orchestrator (Incident Manager) runs an agentic loop: it queries a knowledge base and read-only tools and dispatches to specialist agents (L1, L2, threat hunt, forensics), re-evaluating until confident, then proposes a verdict. A human analyst sign-off gate is the only commit point, feeding results back to the knowledge base.</desc>
+<style>
+  text{font-family:'Helvetica Neue',Arial,sans-serif}
+  .h1{font-weight:500;font-size:26px;fill:#0F172A}
+  .sub{font-weight:400;font-size:14px;fill:#64748B}
+  .rtitle{font-weight:500;font-size:15px}
+  .rsub{font-weight:400;font-size:11px;fill:#6B7280}
+  .ct{font-weight:500;font-size:14px}
+  .cs{font-weight:400;font-size:11px}
+  .cs12{font-weight:400;font-size:12px}
+  .cht{font-weight:500;font-size:13px}
+  .chs{font-weight:400;font-size:11px}
+  .gt{font-weight:500;font-size:16px}
+  .leg{font-weight:400;font-size:12px}
+  .foot{font-weight:400;font-size:12px;fill:#94A3B8}
+</style>
+<defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9 z" fill="#475569"/></marker>
+  <marker id="ahf" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9 z" fill="#B45309"/></marker>
+</defs>
+
+<rect x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+
+<text x="40" y="38" class="h1">XAI-SOC</text>
+<text x="40" y="60" font-size="15" font-weight="500" fill="#0F172A">Explainable Multi-Agent AI for Autonomous Security Operations Centers</text>
+<text x="40" y="79" font-size="12" fill="#64748B">Deterministic-first and human-in-control: the LLM runs only at the decision point</text>
+
+<!-- LEFT: data sources -->
+<rect x="40" y="88" width="224" height="472" rx="14" fill="#F8FAFC" stroke="#94A3B8" stroke-width="1" stroke-dasharray="6 5"/>
+<text x="152" y="112" class="rtitle" fill="#334155" text-anchor="middle">Data sources &amp; ingestion</text>
+
+<rect x="56" y="126" width="192" height="72" rx="9" fill="#EEF2F7" stroke="#64748B" stroke-width="0.8"/>
+<text x="68" y="156" class="ct" fill="#334155">SIEM &amp; Logs</text>
+<text x="68" y="176" class="cs" fill="#64748B">any SIEM / log source</text>
+
+<rect x="56" y="214" width="192" height="72" rx="9" fill="#EEF2F7" stroke="#64748B" stroke-width="0.8"/>
+<text x="68" y="244" class="ct" fill="#334155">Network Data</text>
+<text x="68" y="264" class="cs" fill="#64748B">firewall · DNS · rDNS</text>
+
+<rect x="56" y="302" width="192" height="72" rx="9" fill="#EEF2F7" stroke="#64748B" stroke-width="0.8"/>
+<text x="68" y="332" class="ct" fill="#334155">Endpoint Data</text>
+<text x="68" y="352" class="cs" fill="#64748B">EDR / XDR agents</text>
+
+<rect x="56" y="390" width="192" height="72" rx="9" fill="#EEF2F7" stroke="#64748B" stroke-width="0.8"/>
+<text x="68" y="420" class="ct" fill="#334155">Email Data</text>
+<text x="68" y="440" class="cs" fill="#64748B">headers · SPF/DKIM/DMARC</text>
+
+<rect x="56" y="478" width="192" height="72" rx="9" fill="#EEF2F7" stroke="#64748B" stroke-width="0.8"/>
+<text x="68" y="504" class="ct" fill="#334155">Threat Intel Data</text>
+<text x="68" y="522" class="cs" fill="#64748B">reputation · sandbox</text>
+<text x="68" y="538" class="cs" fill="#64748B">OSINT + commercial feeds</text>
+
+<!-- CENTER: agentic engine frame -->
+<rect x="294" y="88" width="624" height="472" rx="16" fill="#FBFEFC" stroke="#34A853" stroke-width="2"/>
+<text x="606" y="110" class="rtitle" fill="#1E7A34" text-anchor="middle">AI reasoning &amp; analysis engine · agentic orchestration</text>
+<text x="606" y="130" class="rsub" text-anchor="middle">orchestrator routes to specialists &amp; tools, gathers evidence, re-evaluates until confident</text>
+
+<!-- deterministic entry strip -->
+<rect x="310" y="144" width="592" height="48" rx="10" fill="#EEF2F7" stroke="#64748B" stroke-width="0.9"/>
+<text x="606" y="166" class="ct" fill="#334155" text-anchor="middle">Deterministic triage &amp; enrichment · no LLM</text>
+<text x="606" y="184" class="cs12" fill="#475569" text-anchor="middle">RAG recall from Qdrant → exact-match / n-way short-circuit, else escalate</text>
+
+<!-- top agents -->
+<rect x="318" y="208" width="150" height="60" rx="9" fill="#FDEBDD" stroke="#E0824C" stroke-width="1"/>
+<text x="393" y="234" class="cht" fill="#9A4A1E" text-anchor="middle" dominant-baseline="central">L1 triage</text>
+<text x="393" y="254" class="chs" fill="#B65E2E" text-anchor="middle" dominant-baseline="central">fast FP filter</text>
+
+<rect x="744" y="208" width="150" height="60" rx="9" fill="#FDEBDD" stroke="#E0824C" stroke-width="1"/>
+<text x="819" y="234" class="cht" fill="#9A4A1E" text-anchor="middle" dominant-baseline="central">L2 analysis</text>
+<text x="819" y="254" class="chs" fill="#B65E2E" text-anchor="middle" dominant-baseline="central">verdict + MITRE</text>
+
+<!-- side resources -->
+<path d="M331 312 L331 368 A62 8 0 0 0 455 368 L455 312" fill="#ECEAFE" stroke="#6366F1" stroke-width="1"/>
+<ellipse cx="393" cy="312" rx="62" ry="8" fill="#DED9FB" stroke="#6366F1" stroke-width="1"/>
+<text x="393" y="336" class="cht" fill="#3730A3" text-anchor="middle" dominant-baseline="central">Vector database</text>
+<text x="393" y="354" class="chs" fill="#4338CA" text-anchor="middle" dominant-baseline="central">Qdrant · bge-m3</text>
+
+<rect x="744" y="306" width="150" height="68" rx="9" fill="#EEF2F7" stroke="#64748B" stroke-width="1"/>
+<text x="819" y="333" class="cht" fill="#334155" text-anchor="middle" dominant-baseline="central">Read-only tools</text>
+<text x="819" y="353" class="chs" fill="#475569" text-anchor="middle" dominant-baseline="central">TI · IOC history</text>
+
+<!-- orchestrator hub -->
+<rect x="506" y="298" width="200" height="86" rx="12" fill="#E7F6EC" stroke="#34A853" stroke-width="2"/>
+<text x="606" y="326" class="ct" fill="#1E7A34" text-anchor="middle" dominant-baseline="central">Orchestrator</text>
+<text x="606" y="347" class="cs12" fill="#2E7D46" text-anchor="middle" dominant-baseline="central">Incident Manager</text>
+<text x="606" y="366" class="chs" fill="#2E7D46" text-anchor="middle" dominant-baseline="central">↻ analyzes → routes → re-tasks</text>
+
+<!-- bottom agents -->
+<rect x="318" y="412" width="150" height="60" rx="9" fill="#F0E9FB" stroke="#8B5CF6" stroke-width="1"/>
+<text x="393" y="430" class="cht" fill="#5B21B6" text-anchor="middle" dominant-baseline="central">Threat hunt</text>
+<text x="393" y="448" class="chs" fill="#6D28D9" text-anchor="middle" dominant-baseline="central">runs hunting queries</text>
+<text x="393" y="463" class="chs" fill="#6D28D9" text-anchor="middle" dominant-baseline="central">to gather evidence</text>
+
+<rect x="744" y="412" width="150" height="60" rx="9" fill="#DDF3F0" stroke="#14B8A6" stroke-width="1"/>
+<text x="819" y="430" class="cht" fill="#0F766E" text-anchor="middle" dominant-baseline="central">Forensics</text>
+<text x="819" y="448" class="chs" fill="#0E7A70" text-anchor="middle" dominant-baseline="central">timeline &amp;</text>
+<text x="819" y="463" class="chs" fill="#0E7A70" text-anchor="middle" dominant-baseline="central">root cause</text>
+
+<!-- hub spokes (bidirectional) -->
+<line x1="504" y1="308" x2="470" y2="270" stroke="#475569" stroke-width="1.5" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<line x1="708" y1="308" x2="742" y2="270" stroke="#475569" stroke-width="1.5" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<line x1="504" y1="374" x2="470" y2="412" stroke="#475569" stroke-width="1.5" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<line x1="708" y1="374" x2="742" y2="412" stroke="#475569" stroke-width="1.5" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<line x1="504" y1="340" x2="458" y2="340" stroke="#6366F1" stroke-width="1.4" stroke-dasharray="5 4" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<text x="481" y="330" class="chs" fill="#6366F1" text-anchor="middle">recall</text>
+<line x1="708" y1="340" x2="742" y2="340" stroke="#64748B" stroke-width="1.4" stroke-dasharray="5 4" marker-start="url(#ah)" marker-end="url(#ah)"/>
+
+<!-- entry + exit -->
+<line x1="606" y1="192" x2="606" y2="296" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<line x1="606" y1="384" x2="606" y2="581" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="616" y="520" class="cs" fill="#475569" text-anchor="start">builds proposal</text>
+
+<!-- RIGHT: governance -->
+<rect x="948" y="88" width="292" height="472" rx="14" fill="#F6FDF9" stroke="#86C79B" stroke-width="1" stroke-dasharray="6 5"/>
+<text x="1094" y="112" class="rtitle" fill="#15803D" text-anchor="middle">Governance, trust &amp; output</text>
+
+<rect x="964" y="130" width="260" height="90" rx="10" fill="#E9F8EF" stroke="#16A34A" stroke-width="0.9"/>
+<text x="978" y="162" class="ct" fill="#15803D">Explainability</text>
+<text x="978" y="184" class="cs12" fill="#2E7D46">report · MITRE ATT&amp;CK · evidence</text>
+
+<rect x="964" y="236" width="260" height="90" rx="10" fill="#E9F8EF" stroke="#16A34A" stroke-width="0.9"/>
+<text x="978" y="268" class="ct" fill="#15803D">Compliance &amp; trust</text>
+<text x="978" y="290" class="cs12" fill="#2E7D46">audit log · exclusions · provenance</text>
+
+<rect x="964" y="342" width="260" height="90" rx="10" fill="#E9F8EF" stroke="#16A34A" stroke-width="0.9"/>
+<text x="978" y="374" class="ct" fill="#15803D">Human-in-the-loop</text>
+<text x="978" y="396" class="cs12" fill="#2E7D46">gate is the only commit point</text>
+
+<rect x="964" y="448" width="260" height="90" rx="10" fill="#E9F8EF" stroke="#16A34A" stroke-width="0.9"/>
+<text x="978" y="480" class="ct" fill="#15803D">Response actions</text>
+<text x="978" y="502" class="cs12" fill="#2E7D46">via EDR/XDR · analyst-approved</text>
+
+<line x1="919" y1="331" x2="947" y2="331" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+
+<!-- BOTTOM: human gate -->
+<rect x="294" y="584" width="624" height="104" rx="14" fill="#FEF3E2" stroke="#D97706" stroke-width="2"/>
+<text x="606" y="616" class="gt" fill="#92400E" text-anchor="middle">Human analyst sign-off gate · the only commit point</text>
+<text x="606" y="642" class="cs12" fill="#B45309" text-anchor="middle">Approve · Reject · Manager chat  →  verdict committed, response actions fired</text>
+<text x="606" y="664" class="cs12" fill="#B45309" text-anchor="middle">Approved verdicts index back to Qdrant: the continuous-learning feedback loop</text>
+
+<!-- feedback loop to knowledge base -->
+<polyline points="304,584 304,340 329,340" fill="none" stroke="#D97706" stroke-width="2.5" stroke-dasharray="6 4" marker-end="url(#ahf)"/>
+<circle cx="304" cy="320" r="9" fill="#D97706"/>
+<text x="304" y="321" fill="#FFFFFF" font-size="11" font-weight="500" text-anchor="middle" dominant-baseline="central">★</text>
+<text x="392" y="394" class="chs" fill="#B45309" text-anchor="middle" dominant-baseline="central">↻ writes verified verdicts</text>
+
+<!-- legend left -->
+<rect x="40" y="584" width="224" height="104" rx="12" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1"/>
+<text x="56" y="608" class="ct" fill="#334155">Colour key</text>
+<circle cx="62" cy="628" r="5" fill="#34A853"/><text x="76" y="632" class="leg" fill="#475569">Orchestrator</text>
+<circle cx="62" cy="650" r="5" fill="#E0824C"/><text x="76" y="654" class="leg" fill="#475569">Triage L1/L2</text>
+<circle cx="176" cy="628" r="5" fill="#8B5CF6"/><text x="190" y="632" class="leg" fill="#475569">Hunt</text>
+<circle cx="176" cy="650" r="5" fill="#14B8A6"/><text x="190" y="654" class="leg" fill="#475569">Forensics</text>
+<text x="56" y="678" class="leg" fill="#94A3B8">indigo = memory · grey = tools/data</text>
+
+<!-- note right -->
+<rect x="948" y="584" width="292" height="104" rx="12" fill="#FEF8EE" stroke="#F0C489" stroke-width="1.4"/>
+<text x="964" y="608" class="ct" fill="#92400E">★ The self-learning loop</text>
+<text x="964" y="630" class="leg" fill="#B45309">Every Approve becomes verified memory.</text>
+<text x="964" y="648" class="leg" fill="#B45309">Auto-resolves look-alikes with no LLM.</text>
+<text x="964" y="666" class="leg" fill="#B45309">Faster &amp; smarter the more it runs.</text>
+
+<!-- left ingest arrow -->
+<text x="278" y="150" class="cs" fill="#64748B" text-anchor="middle">ingest</text>
+<line x1="266" y1="160" x2="291" y2="160" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+
+<text x="640" y="708" font-size="12" fill="#94A3B8" text-anchor="middle">An explainable, trustworthy and autonomous SOC platform for SMEs and MSSPs. Validated across multiple independent MSSP environments and an SME quantum-security use case.</text>
+</svg>

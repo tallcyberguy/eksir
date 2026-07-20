@@ -1,0 +1,90 @@
+# ── Secrets ─────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.production
+.env.development
+.env.*.local
+deploy/.env
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.kdbx
+
+# ── Python ──────────────────────────────────────────────────────────────
+*.pyc
+*.pyo
+__pycache__/
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage/
+htmlcov/
+
+# ── Node / Next.js ──────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+# TinyMCE is vendored into public/ by the postinstall/prebuild copy step — generated, not source.
+frontend/public/tinymce/
+
+# ── Editor / OS ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Claude Code local state (machine-specific; incl. linked worktrees) ───
+# The whole dir is local tooling state — never publish it. It also holds
+# git worktrees that would otherwise carry un-scrubbed working copies.
+.claude/
+CLAUDE.md
+
+# ── Local dev volumes / caches ──────────────────────────────────────────
+deploy/caddy_data/
+deploy/caddy_config/
+deploy/postgres_data/
+deploy/redis_data/
+deploy/qdrant_data/
+deploy/isoc_workspace/
+deploy/hf_cache/
+deploy/data/
+deploy/volumes/
+
+# ── Sensitive analyst material — must NEVER end up in git ───────────────
+# Customer alerts, malware samples, forensics reports may contain PII or
+# real attacker artifacts. If you need to share one for debugging, do it
+# out-of-band.
+samples/
+malware/
+reports/malware-analysis/
+*.malware
+*.suspect
+*.sample
+
+# ── Logs / runtime artifacts ────────────────────────────────────────────
+*.log
+logs/
+.local/
+
+# ── Build artifacts ─────────────────────────────────────────────────────
+*.whl
+*.tar.gz
+*.zip
+
+# ── Internal-only material — NEVER publish ──────────────────────────────
+# Named-competitor teardown, RAG deployment post-mortem with real tenant
+# scores, and internal marketing/roadmap notes. Kept on disk for reference,
+# excluded from the public repo.
+_internal/

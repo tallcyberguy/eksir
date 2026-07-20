@@ -1,0 +1,294 @@
+# EKSIR docker-compose (build-from-source, single host)
+# Any Linux/macOS host with Docker. The gpu profile additionally needs the
+# NVIDIA Container Toolkit; the forensics profile builds a large REMnux image.
+#
+# Usage (run from this deploy/ directory):
+#   cp .env.example ./.env
+#   $EDITOR ./.env
+#   docker compose up -d
+#
+# Profiles:
+#   default       — everything except vLLM (Claude API only)
+#   gpu           — adds vLLM container, requires NVIDIA Container Toolkit on the host
+
+name: isoc
+
+services:
+  # ── Reverse proxy + auto-HTTPS ──────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:4000:4000"   # LiteLLM admin UI bound to localhost only
+    environment:
+      ISOC_DOMAIN: ${ISOC_DOMAIN}
+    volumes:
+      - ../config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+
+  # ── Frontend (Next.js) ──────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_BASE: ${ISOC_PUBLIC_URL}/api
+      NEXT_PUBLIC_WS_BASE:  ${ISOC_PUBLIC_URL}/ws
+      NODE_ENV: production
+    expose:
+      - "3000"
+
+  # ── Backend (FastAPI orchestrator) ──────────────────────────────────────
+  backend:
+    build:
+      # Context = repo root so the build can COPY both backend/ and
+      # vendor/alert-memory-mcp/ into the image (self-contained, no host mount).
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL:           ${DATABASE_URL}
+      REDIS_URL:              ${REDIS_URL}
+      QDRANT_URL:             ${QDRANT_URL}
+      OLLAMA_URL:             ${OLLAMA_URL}
+      QDRANT_API_KEY:         ${QDRANT_API_KEY}
+      QDRANT_ALERTS_COLLECTION: ${QDRANT_ALERTS_COLLECTION}
+      QDRANT_KB_COLLECTION:   ${QDRANT_KB_COLLECTION}
+      LITELLM_BASE_URL:       ${LITELLM_BASE_URL}
+      LITELLM_MASTER_KEY:     ${LITELLM_MASTER_KEY}
+      ISOC_MODEL_DEEP:        ${ISOC_MODEL_DEEP}
+      ISOC_MODEL_FAST:        ${ISOC_MODEL_FAST}
+      JWT_SECRET:             ${JWT_SECRET}
+      # At-rest encryption key for stored secrets (LLM + integration API keys).
+      # Decoupled from JWT_SECRET so auth rotation never orphans encrypted creds.
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY}
+      JWT_ALGORITHM:          ${JWT_ALGORITHM}
+      JWT_TTL_MINUTES:        ${JWT_TTL_MINUTES}
+      ISOC_BOOTSTRAP_ADMIN_EMAIL:    ${ISOC_BOOTSTRAP_ADMIN_EMAIL}
+      ISOC_BOOTSTRAP_ADMIN_PASSWORD: ${ISOC_BOOTSTRAP_ADMIN_PASSWORD}
+      INGEST_HMAC_SECRET:     ${INGEST_HMAC_SECRET}
+      VIRUSTOTAL_API_KEY:     ${VIRUSTOTAL_API_KEY}
+      ABUSEIPDB_API_KEY:      ${ABUSEIPDB_API_KEY}
+      OTX_API_KEY:            ${OTX_API_KEY}
+      ABUSECH_AUTH_KEY:       ${ABUSECH_AUTH_KEY}
+      IPINFO_TOKEN:           ${IPINFO_TOKEN}
+      V1_API_KEY:             ${V1_API_KEY}
+      V1_REGION:              ${V1_REGION:-eu}
+      V1_CUSTOMERS:           ${V1_CUSTOMERS:-}
+      # Pull ingestion master switch. The cron runs in the WORKER (which gets this
+      # via env_file), but the BACKEND needs it too so the Sources page banner
+      # reflects reality — hence it's listed here.
+      PULL_INGEST_ENABLED:    ${PULL_INGEST_ENABLED:-false}
+      # Analyst-triggered live hunt search runs in the BACKEND (manager chat), so
+      # this flag must be here — the worker's env_file doesn't reach it.
+      V1_ACTIVITY_SEARCH_ENABLED: ${V1_ACTIVITY_SEARCH_ENABLED:-false}
+      V1_ACTIVITY_WINDOW_HOURS:   ${V1_ACTIVITY_WINDOW_HOURS:-24}
+      V1_ACTIVITY_MAX_RECORDS:    ${V1_ACTIVITY_MAX_RECORDS:-200}
+      # Microsoft Graph mail — customer-notification send runs in the backend,
+      # so the GRAPH_* creds must be here too (the worker gets them via env_file).
+      GRAPH_TENANT_ID:        ${GRAPH_TENANT_ID:-}
+      GRAPH_CLIENT_ID:        ${GRAPH_CLIENT_ID:-}
+      GRAPH_CLIENT_SECRET:    ${GRAPH_CLIENT_SECRET:-}
+      GRAPH_MAILBOX:          ${GRAPH_MAILBOX:-}
+      GRAPH_SEND_FROM:        ${GRAPH_SEND_FROM:-}
+      EMAIL_SEND_VIA:         ${EMAIL_SEND_VIA:-smtp}
+      LOG_LEVEL:              ${LOG_LEVEL:-INFO}
+      # Deployment posture (dev|staging|prod) + public origin — drive the
+      # fail-closed weak-secret boot guard and the CORS allow-list (Stage 3a).
+      ISOC_ENV:               ${ISOC_ENV:-dev}
+      ISOC_PUBLIC_URL:        ${ISOC_PUBLIC_URL:-http://localhost}
+    volumes:
+      # alert-memory-mcp is now vendored INTO the image (see backend/Dockerfile,
+      # `COPY vendor/alert-memory-mcp …`). No host mount = self-contained image.
+      # triage.py is vendored into the image at /app/scripts/triage.py (see Dockerfile).
+      # Workspace for forensics file uploads (also shared with remnux container)
+      - isoc_workspace:/workspace
+      # NOTE: the host Docker socket is deliberately NOT mounted here. The
+      # backend is the internet-facing service and only ENQUEUES forensics jobs;
+      # the actual `docker exec` into REMnux runs in the internal `worker`
+      # container, which holds the socket. Keeping the socket off the backend
+      # removes the direct RCE-to-host-root path from the exposed surface.
+    expose:
+      - "8000"
+    extra_hosts:
+      # Allow `host.docker.internal` resolution on Linux too (no-op on macOS).
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      litellm:
+        condition: service_started
+
+  # ── Background worker (ARQ) ─────────────────────────────────────────────
+  worker:
+    build:
+      # Context = repo root so the build can COPY both backend/ and
+      # vendor/alert-memory-mcp/ into the image (self-contained, no host mount).
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "isoc_api.worker"]
+    # Worker inherits the same configuration as the API container via .env file.
+    env_file:
+      - ./.env
+    # The shared Dockerfile defines an HTTP healthcheck (works for the API), but
+    # the worker isn't an HTTP server — without overriding, docker reports it as
+    # permanently "unhealthy" even though it's running fine. Disable.
+    healthcheck:
+      disable: true
+    volumes:
+      - isoc_workspace:/workspace
+      # Docker socket — REQUIRED only for the forensics profile: the worker runs
+      # `docker exec` into the network-isolated REMnux container. This grants the
+      # worker root-equivalent host access, so it is confined to this internal
+      # (no inbound) service. If you do NOT run the forensics profile you can
+      # remove this mount entirely. For stronger isolation, front it with a
+      # docker-socket-proxy restricted to `exec` on the remnux container.
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis (ARQ queue) ───────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Qdrant ──────────────────────────────────────────────────────────────
+  # Self-contained ISOC Qdrant. In dev you can set QDRANT_URL=http://host.docker.internal:6333
+  # in your local .env to share the alert-memory-mcp Qdrant instead — but for any
+  # multi-machine deploy this in-compose service is the source of truth (no
+  # host-gateway trickery on Linux servers).
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    expose:
+      - "6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    # Qdrant's minimal container image has neither wget nor curl, so a proper
+    # HTTP healthcheck would need to embed Python or netcat — not worth it.
+    # Qdrant boots in <2s; rely on service_started + the backend's own retry
+    # logic + /health/deep for real readiness verification.
+
+  # ── LiteLLM proxy (Claude + vLLM + OpenAI compat) ───────────────────────
+  # NOTE: We use `env_file` (not `environment` with ${VAR} substitution) because
+  # the parent shell may export empty values for sensitive keys (e.g. Claude
+  # Code sessions set ANTHROPIC_API_KEY=""). Compose's variable substitution
+  # gives shell env precedence over .env, so an empty shell var would shadow
+  # the real key. `env_file` reads the file directly into the container env,
+  # bypassing substitution entirely.
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    command: ["--config", "/app/litellm.config.yaml", "--port", "4000"]
+    env_file:
+      - ./.env
+    volumes:
+      - ../config/litellm.config.yaml:/app/litellm.config.yaml:ro
+    expose:
+      - "4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── vLLM (GPU — enabled with `--profile gpu`) ───────────────────────────
+  vllm:
+    image: vllm/vllm-openai:latest
+    restart: unless-stopped
+    profiles: ["gpu"]
+    command: >
+      --model ${VLLM_MODEL}
+      --quantization ${VLLM_QUANTIZATION}
+      --max-model-len ${VLLM_MAX_MODEL_LEN}
+      --gpu-memory-utilization ${VLLM_GPU_MEMORY_UTILIZATION}
+      --port 8001
+      --host 0.0.0.0
+    expose:
+      - "8001"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+
+  # ── REMnux sandbox (forensics) ──────────────────────────────────────────
+  # Network-isolated by default — only the backend can reach it.
+  # Built from a local Dockerfile that bakes in YARA-Forge rulesets (core +
+  # full) so the static analysis stack works out-of-the-box without
+  # post-deploy bootstrap.
+  remnux:
+    build:
+      context: ./remnux
+      dockerfile: Dockerfile
+    image: isoc/remnux-with-yara-rules:latest
+    restart: unless-stopped
+    profiles: ["forensics"]
+    command: ["sleep", "infinity"]
+    networks:
+      - isolated
+    volumes:
+      - isoc_workspace:/workspace
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  isoc_workspace:
+  hf_cache:
+
+networks:
+  default:
+    name: isoc-default
+  isolated:
+    name: isoc-isolated
+    internal: true

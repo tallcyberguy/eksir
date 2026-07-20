@@ -1,0 +1,62 @@
+# Caddy reverse proxy.
+#
+# This config serves plain HTTP on :80 — appropriate for local development
+# and for production behind another TLS terminator (Hetzner Load Balancer,
+# Cloudflare Proxy, etc.). For Caddy to terminate Let's Encrypt TLS directly,
+# replace `:80` below with `isoc.yourdomain.tld` and ensure 80+443 are public.
+
+:80 {
+	encode gzip zstd
+
+	# Security headers on every response (frontend + proxied API). Kept
+	# conservative so they don't break the Next.js UI. HSTS is ignored by
+	# browsers over plain http, so it's harmless here and takes effect once a
+	# TLS terminator fronts this. The CSP is limited to frame-ancestors
+	# (clickjacking) — a full script-src policy needs tuning against Next.js's
+	# inline/hydration scripts; template below.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Cross-Origin-Opener-Policy "same-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+		Content-Security-Policy "frame-ancestors 'none'"
+		-Server
+	}
+	# Fuller CSP to enable once tuned/tested against the frontend build:
+	# header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+	handle /v1/* {
+		reverse_proxy backend:8000
+	}
+	handle /docs* {
+		reverse_proxy backend:8000
+	}
+	handle /openapi.json {
+		reverse_proxy backend:8000
+	}
+	# /health and /health/deep — trailing * so the readiness probe matches too.
+	handle /health* {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else → Next.js frontend
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+# LiteLLM admin UI — localhost-bound only (SSH-tunnel for remote access).
+:4000 {
+	bind 127.0.0.1
+	reverse_proxy litellm:4000
+}

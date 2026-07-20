@@ -1,0 +1,88 @@
+name: Bug report
+description: Report a defect in EKSIR so we can reproduce and fix it.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please fill in the fields below so we can reproduce it quickly.
+
+        **Do not report security vulnerabilities here.** Follow [SECURITY.md](../blob/main/SECURITY.md)
+        and use private vulnerability reporting instead. **Do not paste real customer data, secrets, API keys,
+        or tokens** into this issue: redact logs and use synthetic names (acme, contoso, fabrikam, example.com).
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: This is not a security vulnerability (those go through SECURITY.md, not public issues).
+          required: true
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I have removed any real customer data, secrets, or credentials from this report.
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and its impact.
+      placeholder: When I approve an incident at the gate, the verdict is not written back to Qdrant and...
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact, ordered steps. Include the endpoint, page, or command involved.
+      placeholder: |
+        1. Ingest an alert via the webhook connector...
+        2. Open the incident at http://localhost/incidents/<id>
+        3. Click Approve with the "isolate" action checked
+        4. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: deployment
+    attributes:
+      label: Deployment info
+      description: How is your instance running?
+      value: |
+        - EKSIR version / commit SHA:
+        - docker compose profile(s): (core / forensics / gpu)
+        - LLM backend: (Seneca via Ollama / Claude via LiteLLM / vLLM / other)
+        - EDR/XDR connectors enabled: (none / Microsoft Defender / Vision One)
+        - Host OS and Docker version:
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: |
+        Paste backend/worker logs, browser console errors, or screenshots.
+        Get backend logs with `docker compose logs backend worker`. This is rendered as code, so no backticks needed.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Additional context, workarounds you tried, or related issues.
+    validations:
+      required: false

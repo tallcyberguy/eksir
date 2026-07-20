@@ -1,0 +1,26 @@
+# Code owners for EKSIR (repo codename: isoc)
+#
+# These owners are requested for review automatically when a PR touches the
+# matching paths. The last matching pattern takes precedence.
+# See https://docs.github.com/articles/about-code-owners
+
+# Default owner for everything in the repo.
+*                       @tallcyberguy
+
+# Backend orchestrator + ARQ worker (FastAPI, pipeline, connectors).
+/backend/               @tallcyberguy
+
+# Frontend (Next.js UI).
+/frontend/              @tallcyberguy
+
+# Marketing / landing site.
+/landing/               @tallcyberguy
+
+# Design docs, ADRs, and diagrams.
+/docs/                  @tallcyberguy
+
+# Deploy stack (docker compose, Caddy, profiles).
+/deploy/                @tallcyberguy
+
+# Community health, CI/CD, and repo configuration.
+/.github/               @tallcyberguy

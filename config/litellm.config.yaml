@@ -1,0 +1,76 @@
+# LiteLLM proxy configuration for ISOC
+# Backend always talks to http://litellm:4000/v1 with an OpenAI-style client.
+# This file maps virtual model names → real providers so we can swap them
+# without touching backend code.
+#
+# Virtual models exposed to ISOC:
+#   isoc-fast    — cheap classifier (used by 2-stage pipeline if enabled later)
+#   isoc-deep    — synthesis model (writes the SOC report)
+#   isoc-local   — vLLM on the Hetzner GPU (used when ANTHROPIC_API_KEY is missing
+#                  or when an investigation is flagged "sensitive: local-only")
+
+model_list:
+  # ── Anthropic Claude (default deep model) ──────────────────────────────
+  - model_name: isoc-deep
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+      max_tokens: 8192
+      temperature: 0.2
+
+  - model_name: isoc-fast
+    litellm_params:
+      model: anthropic/claude-haiku-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+      max_tokens: 2048
+      temperature: 0.1
+
+  # ── OpenAI compatible (e.g. Azure OpenAI, Together, Groq, OpenRouter) ──
+  # Uncomment + set OPENAI_API_KEY + OPENAI_BASE_URL to enable.
+  # - model_name: isoc-deep-openai
+  #   litellm_params:
+  #     model: openai/gpt-4o
+  #     api_key: os.environ/OPENAI_API_KEY
+  #     api_base: os.environ/OPENAI_BASE_URL
+
+  # ── vLLM local (Hetzner GPU) ────────────────────────────────────────────
+  # vLLM speaks OpenAI-compatible. The "openai/" prefix tells LiteLLM to use
+  # the OpenAI client; api_base points at the local vLLM container.
+  - model_name: isoc-local
+    litellm_params:
+      model: openai/Qwen/Qwen2.5-72B-Instruct-AWQ
+      api_base: http://vllm:8001/v1
+      api_key: "EMPTY"           # vLLM does not require a key
+      max_tokens: 8192
+      temperature: 0.2
+
+  - model_name: isoc-local-fast
+    litellm_params:
+      model: openai/Qwen/Qwen2.5-7B-Instruct
+      api_base: http://vllm:8001/v1
+      api_key: "EMPTY"
+      max_tokens: 2048
+      temperature: 0.1
+
+# ── Routing & resilience ─────────────────────────────────────────────────
+router_settings:
+  # If Anthropic fails, fall back to local vLLM (only valid if vllm container is up)
+  fallbacks:
+    - isoc-deep: ["isoc-local"]
+    - isoc-fast: ["isoc-local-fast"]
+  num_retries: 2
+  timeout: 120
+  cooldown_time: 30
+
+litellm_settings:
+  drop_params: true          # ignore unsupported params silently (Claude vs OpenAI mismatch)
+  set_verbose: false
+  request_timeout: 120
+  # Cost tracking — written to LiteLLM's internal sqlite for the admin UI.
+  success_callback: ["langfuse"]
+  failure_callback: ["langfuse"]
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY   # required to call /key/generate etc.
+  database_url: os.environ/LITELLM_DATABASE_URL
+  alerting: ["slack"]                          # optional, set SLACK_WEBHOOK_URL

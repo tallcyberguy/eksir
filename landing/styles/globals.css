@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { height: 100%; }
+
+body {
+  background-color: theme("colors.base");
+  color: theme("colors.text");
+  background-image: theme("backgroundImage.hex-grid");
+  background-size: theme("backgroundSize.hex");
+  font-family: theme("fontFamily.sans");
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Section container — keep all content rails consistent. */
+.container-rail {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 1180px;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+
+/* Hex panel (corner brackets). Used for the product mock card and feature tiles. */
+.panel {
+  position: relative;
+  background: linear-gradient(180deg, rgba(19,35,76,.55) 0%, rgba(11,22,49,.85) 100%);
+  border: 1px solid theme("colors.line");
+  border-radius: .75rem;
+}
+.panel::before,
+.panel::after {
+  content: "";
+  position: absolute;
+  width: 18px; height: 18px;
+  border: 2px solid theme("colors.accent");
+}
+.panel::before { top: -1px; left: -1px;  border-right: 0; border-bottom: 0; border-top-left-radius: .75rem; }
+.panel::after  { bottom: -1px; right: -1px; border-left: 0; border-top: 0;   border-bottom-right-radius: .75rem; }
+
+/* Buttons. Two variants — primary (cyan-glow) and ghost (line). */
+.btn {
+  @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-md text-sm font-semibold
+         transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+.btn-primary {
+  background: theme("colors.accent");
+  color: #04111E;
+  box-shadow: theme("boxShadow.glow");
+}
+.btn-primary:hover { background: #4CECFF; }
+.btn-ghost {
+  border: 1px solid theme("colors.line");
+  color: theme("colors.text");
+}
+.btn-ghost:hover { border-color: theme("colors.accent"); color: theme("colors.accent"); }
+
+/* Eyebrow label above section headings. */
+.eyebrow {
+  @apply inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] font-semibold text-accent;
+}
+.eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 18px; height: 1px;
+  background: theme("colors.accent");
+}

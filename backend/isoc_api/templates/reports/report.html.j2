@@ -1,0 +1,377 @@
+{#
+  Feature 7 — branded report, slide/page layout. A cover page + roughly one
+  section per page, so a customer report reads as an 8–10 page deliverable
+  rather than a single dense sheet. The `sections` list (reports.data
+  .build_report_context) decides which section pages render.
+
+  Pagination: each `.slide` after the first starts a new page (break-before);
+  the cover uses a margin-free @page so it can bleed to the edges. On screen
+  each slide renders as an A4-proportioned card so the browser preview mirrors
+  the PDF. Rendered by reports.render (autoescape ON); the per-tenant accent
+  rides on --accent so the SOC theme + customer colour compose.
+#}
+<!DOCTYPE html>
+<html lang="en" style="--accent: {{ branding.accent_color }};">
+<head>
+  <meta charset="utf-8"/>
+  <title>{{ template.title }} · {{ period.label }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 18mm 16mm 16mm 16mm;
+      @bottom-left  { content: "{{ scope_label }} · EKSIR SOC — Confidential"; font-size: 8pt; color: #8A93A6; }
+      @bottom-right { content: "Page " counter(page) " of " counter(pages); font-size: 8pt; color: #8A93A6; }
+    }
+    @page cover { margin: 0; @bottom-left { content: none; } @bottom-right { content: none; } }
+
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    html, body { background: #ffffff; }
+    body {
+      margin: 0; color: #0B1D35; line-height: 1.5;
+      font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "DejaVu Sans", sans-serif;
+      font-size: 11pt;
+    }
+    h1, h2, h3 { margin: 0; }
+    table { border-collapse: collapse; width: 100%; }
+
+    /* ── Slide / page mechanics ──────────────────────────────────────── */
+    .slide + .slide { break-before: page; }
+    .cover { page: cover; }
+    .slide-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      border-bottom: 2px solid var(--accent); padding-bottom: 8px; margin-bottom: 20px;
+    }
+    .slide-head h2 { font-size: 17px; letter-spacing: .3px; }
+    .slide-head .who { font-size: 10px; color: #6B7280; text-transform: uppercase; letter-spacing: 1.2px; }
+    .lead { font-size: 12.5px; color: #374151; margin: 0 0 18px; max-width: 62em; }
+
+    /* On screen, show each slide as an A4 card so the preview matches the PDF. */
+    @media screen {
+      body { background: #dfe4ec; padding: 22px 0; }
+      .slide {
+        width: 210mm; min-height: 297mm; margin: 0 auto 22px; background: #fff;
+        box-shadow: 0 3px 18px rgba(11,29,53,.20); padding: 18mm 16mm;
+      }
+      .cover { padding: 0; }
+    }
+
+    /* ── Cover ───────────────────────────────────────────────────────── */
+    .cover { background: #0B1D35; color: #fff; }
+    .cover .inner {
+      min-height: 297mm; display: flex; flex-direction: column;
+      padding: 34mm 26mm; border-top: 8px solid var(--accent);
+    }
+    .cover .brand { font-size: 15px; font-weight: 700; letter-spacing: 2px; color: #fff; }
+    .cover .brand .mark { color: var(--accent); }
+    .cover .logo { margin-top: 40mm; }
+    .cover .logo img { max-height: 90px; max-width: 320px; background:#fff; border-radius: 6px; padding: 8px 12px; }
+    .cover .spacer { flex: 1; }
+    .cover h1 { font-size: 40px; line-height: 1.1; margin-bottom: 10px; }
+    .cover .accent-rule { width: 70px; height: 5px; background: var(--accent); margin: 14px 0 18px; }
+    .cover .customer { font-size: 22px; color: var(--accent); font-weight: 600; }
+    .cover .period { font-size: 15px; color: #A6B0CF; margin-top: 4px; }
+    .cover .foot { font-size: 10.5px; color: #8A93A6; border-top: 1px solid #24344f; padding-top: 12px; }
+
+    /* ── KPI tiles (exec slide) ──────────────────────────────────────── */
+    .kpis { width: 100%; }
+    .kpis td { border: 1px solid #E2E6EE; border-radius: 8px; padding: 16px; width: 33.3%; vertical-align: top; }
+    .kpi__label { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; color: #6B7280; }
+    .kpi__val { font-size: 28px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
+    .kpi--fg .kpi__val { color: #0B1D35; }
+    .kpi--danger .kpi__val { color: #E23A56; }
+    .kpi--warning .kpi__val { color: #C77A12; }
+    .kpi--positive .kpi__val { color: #0A8F5B; }
+    .kpi--muted .kpi__val { color: #6B7280; }
+
+    /* ── Bars + tables ───────────────────────────────────────────────── */
+    .bar-row { display: flex; align-items: center; margin: 12px 0; font-size: 12px; }
+    .bar-row .label { width: 120px; color: #374151; }
+    .bar-row .track { flex: 1; background: #EEF1F6; border-radius: 4px; height: 20px; overflow: hidden; }
+    .bar-row .fill { display: block; height: 20px; border-radius: 4px; min-width: 3px; }
+    .bar-row .val { width: 108px; text-align: right; color: #6B7280; font-variant-numeric: tabular-nums; }
+    table.grid th, table.grid td { text-align: left; padding: 9px 10px; font-size: 12px; border-bottom: 1px solid #E2E6EE; }
+    table.grid th { color: #6B7280; text-transform: uppercase; letter-spacing: .5px; font-size: 9.5px; }
+    table.grid td.num, table.grid th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .chip { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; color: #fff; }
+    code { font-family: "DejaVu Sans Mono", ui-monospace, monospace; font-size: 10.5px; word-break: break-all; }
+    .empty { color: #6B7280; font-size: 12px; }
+
+    /* ── Daily-volume sparkbars ──────────────────────────────────────── */
+    .spark { display: flex; align-items: flex-end; gap: 3px; height: 150px; padding-top: 8px; }
+    .spark .col { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 1px; opacity: .88; }
+    .spark-axis { display: flex; justify-content: space-between; color: #9AA3B2; font-size: 9px; margin-top: 6px; }
+
+    .mttr-row { display: flex; gap: 14px; }
+    .mttr-row .box { flex: 1; border: 1px solid #E2E6EE; border-radius: 8px; padding: 16px; }
+    .mttr-row .box .k { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; color: #6B7280; }
+    .mttr-row .box .v { font-size: 24px; font-weight: 700; margin-top: 4px; }
+
+    /* ── Scope list ──────────────────────────────────────────────────── */
+    .scope-list { list-style: none; padding: 0; margin: 8px 0 0; }
+    .scope-list li {
+      position: relative; padding: 12px 0 12px 26px; font-size: 13.5px;
+      border-bottom: 1px solid #EEF1F6;
+    }
+    .scope-list li::before {
+      content: ""; position: absolute; left: 4px; top: 17px;
+      width: 8px; height: 8px; border-radius: 2px; background: var(--accent);
+    }
+
+    /* ── Action-status callouts ──────────────────────────────────────── */
+    .stat-callouts { display: flex; gap: 18px; margin-top: 10px; }
+    .stat-callouts .callout { flex: 1; border: 1px solid #E2E6EE; border-radius: 10px; padding: 26px 20px; text-align: center; }
+    .stat-callouts .n { font-size: 52px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+    .stat-callouts .l { margin-top: 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 1.4px; color: #6B7280; }
+    .callout--taken .n { color: #0A8F5B; }
+    .callout--pending .n { color: #C77A12; }
+
+    /* ── Incident-detail table ───────────────────────────────────────── */
+    .sev-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+    .status--ok { background: #E3F5EC; color: #0A8F5B; }
+    .status--wait { background: #FBEEDD; color: #C77A12; }
+    table.grid td.cap { text-transform: capitalize; }
+  </style>
+</head>
+<body>
+
+  {# ── Slide 1 · Cover ────────────────────────────────────────────────── #}
+  <section class="slide cover">
+    <div class="inner">
+      <div class="brand"><span class="mark">⬡</span> EKSIR · SOC</div>
+      {% if branding.logo_data_uri %}
+        <div class="logo"><img src="{{ branding.logo_data_uri }}" alt="logo"/></div>
+      {% endif %}
+      <div class="spacer"></div>
+      <div>
+        <h1>{{ template.title }}</h1>
+        <div class="accent-rule"></div>
+        <div class="customer">{{ scope_label }}</div>
+        <div class="period">{{ period.label }}</div>
+      </div>
+      <div class="spacer"></div>
+      <div class="foot">
+        Prepared by the EKSIR Security Operations Center{% if generated_at %} · generated {{ generated_at }}{% endif %}<br/>
+        This report contains confidential security information intended for the named recipient.
+      </div>
+    </div>
+  </section>
+
+  {# ── Scope of service (KAPSAM) ──────────────────────────────────────── #}
+  {% if "scope" in sections %}
+  <section class="slide">
+    <div class="slide-head"><h2>Scope of Service</h2><span class="who">{{ scope_label }} · {{ period.label }}</span></div>
+    <p class="lead">Managed detection &amp; response activity delivered for {{ scope_label }} during {{ period.label }}.</p>
+    <ul class="scope-list">
+      {% for b in scope_bullets %}<li>{{ b }}</li>{% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {# ── Executive summary ──────────────────────────────────────────────── #}
+  {% if "kpis" in sections %}
+  <section class="slide">
+    <div class="slide-head"><h2>Executive Summary</h2><span class="who">{{ scope_label }} · {{ period.label }}</span></div>
+    {% if summary_text %}<p class="lead">{{ summary_text }}</p>{% endif %}
+    <table class="kpis">
+      {% for row in kpis|batch(3) %}
+      <tr>
+        {% for k in row %}
+          <td class="kpi kpi--{{ k.accent }}">
+            <div class="kpi__label">{{ k.label }}</div>
+            <div class="kpi__val">{{ k.value }}</div>
+          </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </table>
+  </section>
+  {% endif %}
+
+  {# ── Verdict mix ────────────────────────────────────────────────────── #}
+  {% if "verdict_mix" in sections %}
+  <section class="slide">
+    <div class="slide-head"><h2>Verdict Breakdown</h2><span class="who">{{ scope_label }} · {{ period.label }}</span></div>
+    <p class="lead">How the period's alerts resolved once triaged and analysed.</p>
+    {% for r in verdict_rows %}
+      <div class="bar-row">
+        <span class="label">{{ r.name }}</span>
+        <span class="track"><span class="fill" style="width: {{ r.width }}%; background: {{ r.color }};"></span></span>
+        <span class="val">{{ r.count }} · {{ r.pct }}%</span>
+      </div>
+    {% else %}
+      <p class="empty">No incidents in this period.</p>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {# ── Severity ───────────────────────────────────────────────────────── #}
+  {% if "severity" in sections %}
+  <section class="slide">
+    <div class="slide-head"><h2>Severity Distribution</h2><span class="who">{{ scope_label }} · {{ period.label }}</span></div>
+    <p class="lead">Alerts by assigned severity for the period.</p>
+    {% for r in severity_rows %}
+      <div class="bar-row">
+        <span class="label">{{ r.name }}</span>
+        <span class="track"><span class="fill" style="width: {{ r.width }}%; background: {{ r.color }};"></span></span>
+        <span class="val">{{ r.count }} · {{ r.pct }}%</span>
+      </div>
+    {% else %}
+      <p class="empty">No severity data.</p>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {# ── Daily volume ───────────────────────────────────────────────────── #}
+  {% if "daily_volume" in sections %}
+  <section class="slide">
+    <div class="slide-head"><h2>Daily Incident Volume</h2><span class="who">{{ scope_label }} · {{ period.label }}</span></div>
+    <p class="lead">Alerts received per day across the reporting period (peak {{ daily.max }}/day).</p>
+    <div class="spark">
+      {% for p in daily.points %}
+        <span class="col" style="height: {{ p.height }}%;" title="{{ p.date }}: {{ p.incidents }}"></span>
+      {% endfor %}
+    </div>
+    <div class="spark-axis">
+      <span>{{ daily.points[0].date if daily.points }}</span>
+      <span>{{ daily.points[-1].date if daily.points }}</span>
+    </div>
+  </section>
+  {% endif %}
+
+  {# ── MTTR ───────────────────────────────────────────────────────────── #}
+  {% if "mttr" in sections %}
+  <section class="slide">
+    <div class="slide-head"><h2>Resolution Time</h2><span class="who">{{ scope_label }} · {{ period.label }}</span></div>
+    <p class="lead">Time from alert to closure across {{ mttr.count }} resolved incidents. Percentiles are shown so a few outliers don't distort the picture.</p>
+    <div class="mttr-row">
+      <div class="box"><div class="k">Median (p50)</div><div class="v">{{ mttr.p50 }}</div></div>
+      <div class="box"><div class="k">p90</div><div class="v">{{ mttr.p90 }}</div></div>
+      <div class="box"><div class="k">Mean</div><div class="v">{{ mttr.avg }}</div></div>
+      <div class="box"><div class="k">Resolved</div><div class="v">{{ mttr.count }}</div></div>
+    </div>
+  </section>
+  {% endif %}
+
+  {# ── Per-source volume ──────────────────────────────────────────────── #}
+  {% if "source_volume" in sections %}
+  <section class="slide">
+    <div class="slide-head"><h2>Alerts by Source</h2><span class="who">{{ scope_label }} · {{ period.label }}</span></div>
+    <p class="lead">Which detection tools generated the period's alerts.</p>
+    {% for r in source_rows %}
+      <div class="bar-row">
+        <span class="label">{{ r.source }}</span>
+        <span class="track"><span class="fill" style="width: {{ r.width }}%; background: var(--accent);"></span></span>
+        <span class="val">{{ r.count }}</span>
+      </div>
+    {% else %}
+      <p class="empty">No source data.</p>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {# ── Action status (Aksiyon Durumları) ──────────────────────────────── #}
+  {% if "action_status" in sections %}
+  <section class="slide">
+    <div class="slide-head"><h2>Action Status</h2><span class="who">{{ scope_label }} · {{ period.label }}</span></div>
+    <p class="lead">Cases where a verdict and response have been committed by an analyst, versus those still awaiting action.</p>
+    <div class="stat-callouts">
+      <div class="callout callout--taken"><div class="n">{{ action_status.taken }}</div><div class="l">Actioned</div></div>
+      <div class="callout callout--pending"><div class="n">{{ action_status.pending }}</div><div class="l">Pending</div></div>
+    </div>
+  </section>
+  {% endif %}
+
+  {# ── Notable-incident detail, paginated (BİLDİRİM DETAYLARI) ─────────── #}
+  {% if "incident_detail" in sections %}
+  {% set pages = incidents|batch(18)|list %}
+  {% for pg in pages %}
+  <section class="slide">
+    <div class="slide-head">
+      <h2>Notable Incidents{% if pages|length > 1 %} <span style="color:#9AA3B2;font-size:13px;">{{ loop.index }}/{{ pages|length }}</span>{% endif %}</h2>
+      <span class="who">{{ scope_label }} · {{ period.label }}</span>
+    </div>
+    {% if loop.first %}<p class="lead">Critical, high, and medium-severity incidents for the period, newest first.</p>{% endif %}
+    <table class="grid">
+      <tr><th>Case</th><th>Date</th><th>Category</th><th>Severity</th><th>Status</th></tr>
+      {% for r in pg %}
+        <tr>
+          <td>{{ r.case }}</td>
+          <td>{{ r.date }}</td>
+          <td class="cap">{{ r.category }}</td>
+          <td class="cap"><span class="sev-dot" style="background: {{ r.sev_color }};"></span>{{ r.severity }}</td>
+          <td><span class="status status--{{ 'ok' if r.actioned else 'wait' }}">{{ r.status }}</span></td>
+        </tr>
+      {% endfor %}
+    </table>
+  </section>
+  {% endfor %}
+  {% endif %}
+
+  {# ── FP-rate trend ──────────────────────────────────────────────────── #}
+  {% if "fp_trend" in sections %}
+  <section class="slide">
+    <div class="slide-head"><h2>False-Positive Rate — 6-Month Trend</h2><span class="who">{{ scope_label }}</span></div>
+    <p class="lead">A falling false-positive rate reflects tuning and exclusions applied over time.</p>
+    <table class="grid">
+      <tr><th>Month</th><th class="num">Total</th><th class="num">FP</th><th class="num">FP Rate</th></tr>
+      {% for m in fp_trend %}
+        <tr><td>{{ m.month }}</td><td class="num">{{ m.total }}</td><td class="num">{{ m.fp }}</td><td class="num">{{ m.fp_rate }}%</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+  {% endif %}
+
+  {# ── Top customers (all-scope) ──────────────────────────────────────── #}
+  {% if "top_customers" in sections %}
+  <section class="slide">
+    <div class="slide-head"><h2>Top Customers by Volume</h2><span class="who">{{ period.label }}</span></div>
+    <p class="lead">Highest-volume customers this period across the managed estate.</p>
+    <table class="grid">
+      <tr><th>Customer</th><th class="num">Total</th><th class="num">TP</th><th class="num">FP</th><th class="num">Benign</th></tr>
+      {% for c in top_customers %}
+        <tr><td>{{ c.customer }}</td><td class="num">{{ c.total }}</td><td class="num">{{ c.tp }}</td><td class="num">{{ c.fp }}</td><td class="num">{{ c.benign }}</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+  {% endif %}
+
+  {# ── IOC digest ─────────────────────────────────────────────────────── #}
+  {% if "ioc_digest" in sections %}
+  <section class="slide">
+    <div class="slide-head"><h2>Analyst-Confirmed Indicators</h2><span class="who">{{ iocs.total }} total · {{ period.label }}</span></div>
+    {% if iocs.by_type %}
+      <p class="lead">{% for t, n in iocs.by_type %}<span class="chip" style="background:#0B1D35; margin-right:6px;">{{ t }} · {{ n }}</span>{% endfor %}</p>
+    {% endif %}
+    <table class="grid">
+      <tr><th>Type</th><th>Indicator</th><th>First seen</th><th>Incidents</th></tr>
+      {% for r in iocs.rows %}
+        <tr><td>{{ r.ioc_type }}</td><td><code>{{ r.value }}</code></td><td>{{ r.first_seen }}</td><td>{{ r.incidents }}</td></tr>
+      {% else %}
+        <tr><td colspan="4" class="empty" style="padding:10px;">No confirmed indicators in this period.</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+  {% endif %}
+
+  {# ── Closing (Teşekkürler) ──────────────────────────────────────────── #}
+  {% if "closing" in sections %}
+  <section class="slide cover">
+    <div class="inner">
+      <div class="brand"><span class="mark">⬡</span> EKSIR · SOC</div>
+      <div class="spacer"></div>
+      <div>
+        <h1>Thank you</h1>
+        <div class="accent-rule"></div>
+        <div class="customer" style="font-size:16px;">Prepared by the EKSIR Security Operations Center for {{ scope_label }}.</div>
+        <div class="period" style="margin-top:14px;">Questions about this report? Contact your SOC point of contact.</div>
+      </div>
+      <div class="spacer"></div>
+      <div class="foot">{{ period.label }}{% if generated_at %} · generated {{ generated_at }}{% endif %} · Confidential</div>
+    </div>
+  </section>
+  {% endif %}
+
+</body>
+</html>

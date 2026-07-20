@@ -1,0 +1,232 @@
+# Production compose — pulls pre-built images from GHCR instead of building.
+#
+# Usage on the prod VM:
+#   cp .env.example .env && $EDITOR .env             # set real values
+#   export EKSIR_VERSION=v0.2.0                      # or :latest, or :sha-XXXX
+#   docker compose -f docker-compose.prod.yml pull   # fetch the images
+#   docker compose -f docker-compose.prod.yml up -d  # start the stack
+#
+# All persistent state (Postgres, Redis, Qdrant, Caddy TLS, workspace) lives
+# in named volumes on the host — images carry NO data. A fresh deploy of the
+# same image tag against fresh volumes produces an empty system with just the
+# bootstrap admin user.
+#
+# This file is structurally a sibling of docker-compose.yml. Two intentional
+# differences:
+#   1. `image:` instead of `build:` for app services (backend/worker/frontend)
+#   2. EKSIR_VERSION env var pins the tag — never use floating `:latest` for
+#      a real deploy; tag with `:vX.Y.Z` or pin to a `:sha-XXXX` you tested.
+#
+# Stateful services (postgres/redis/qdrant/caddy/litellm/remnux) reference
+# upstream images directly — they don't need to be rebuilt per release.
+
+name: isoc
+
+services:
+  # ── Reverse proxy + auto-HTTPS ──────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:4000:4000"
+    environment:
+      ISOC_DOMAIN: ${ISOC_DOMAIN}
+    volumes:
+      - ../config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+
+  # ── Frontend (Next.js) — from GHCR ──────────────────────────────────────
+  frontend:
+    image: ghcr.io/${IMAGE_OWNER:-tallcyberguy}/eksir-frontend:${EKSIR_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_BASE: ${ISOC_PUBLIC_URL}/api
+      NEXT_PUBLIC_WS_BASE:  ${ISOC_PUBLIC_URL}/ws
+      NODE_ENV: production
+    expose:
+      - "3000"
+
+  # ── Backend (FastAPI) — from GHCR ───────────────────────────────────────
+  backend:
+    image: ghcr.io/${IMAGE_OWNER:-tallcyberguy}/eksir-backend:${EKSIR_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL:           ${DATABASE_URL}
+      REDIS_URL:              ${REDIS_URL}
+      QDRANT_URL:             ${QDRANT_URL}
+      OLLAMA_URL:             ${OLLAMA_URL}
+      QDRANT_API_KEY:         ${QDRANT_API_KEY}
+      QDRANT_ALERTS_COLLECTION: ${QDRANT_ALERTS_COLLECTION}
+      QDRANT_KB_COLLECTION:   ${QDRANT_KB_COLLECTION}
+      LITELLM_BASE_URL:       ${LITELLM_BASE_URL}
+      LITELLM_MASTER_KEY:     ${LITELLM_MASTER_KEY}
+      ISOC_MODEL_DEEP:        ${ISOC_MODEL_DEEP}
+      ISOC_MODEL_FAST:        ${ISOC_MODEL_FAST}
+      JWT_SECRET:             ${JWT_SECRET}
+      # At-rest encryption key for stored secrets (LLM + integration API keys).
+      # Decoupled from JWT_SECRET so auth rotation never orphans encrypted creds.
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY}
+      JWT_ALGORITHM:          ${JWT_ALGORITHM}
+      JWT_TTL_MINUTES:        ${JWT_TTL_MINUTES}
+      ISOC_BOOTSTRAP_ADMIN_EMAIL:    ${ISOC_BOOTSTRAP_ADMIN_EMAIL}
+      ISOC_BOOTSTRAP_ADMIN_PASSWORD: ${ISOC_BOOTSTRAP_ADMIN_PASSWORD}
+      INGEST_HMAC_SECRET:     ${INGEST_HMAC_SECRET}
+      VIRUSTOTAL_API_KEY:     ${VIRUSTOTAL_API_KEY}
+      ABUSEIPDB_API_KEY:      ${ABUSEIPDB_API_KEY}
+      OTX_API_KEY:            ${OTX_API_KEY}
+      ABUSECH_AUTH_KEY:       ${ABUSECH_AUTH_KEY}
+      IPINFO_TOKEN:           ${IPINFO_TOKEN}
+      V1_API_KEY:             ${V1_API_KEY}
+      V1_REGION:              ${V1_REGION:-eu}
+      V1_CUSTOMERS:           ${V1_CUSTOMERS:-}
+      # Analyst-triggered live hunt search runs in the BACKEND (manager chat), so
+      # this flag must be here — the worker's env_file doesn't reach it.
+      V1_ACTIVITY_SEARCH_ENABLED: ${V1_ACTIVITY_SEARCH_ENABLED:-false}
+      V1_ACTIVITY_WINDOW_HOURS:   ${V1_ACTIVITY_WINDOW_HOURS:-24}
+      V1_ACTIVITY_MAX_RECORDS:    ${V1_ACTIVITY_MAX_RECORDS:-200}
+      # Microsoft Graph mail — customer-notification send runs in the backend,
+      # so the GRAPH_* creds must be here too (the worker gets them via env_file).
+      GRAPH_TENANT_ID:        ${GRAPH_TENANT_ID:-}
+      GRAPH_CLIENT_ID:        ${GRAPH_CLIENT_ID:-}
+      GRAPH_CLIENT_SECRET:    ${GRAPH_CLIENT_SECRET:-}
+      GRAPH_MAILBOX:          ${GRAPH_MAILBOX:-}
+      GRAPH_SEND_FROM:        ${GRAPH_SEND_FROM:-}
+      EMAIL_SEND_VIA:         ${EMAIL_SEND_VIA:-smtp}
+      LOG_LEVEL:              ${LOG_LEVEL:-INFO}
+      # Deployment posture (dev|staging|prod) + public origin — drive the
+      # fail-closed weak-secret boot guard and the CORS allow-list (Stage 3a).
+      ISOC_ENV:               ${ISOC_ENV:-dev}
+      ISOC_PUBLIC_URL:        ${ISOC_PUBLIC_URL:-http://localhost}
+    volumes:
+      - isoc_workspace:/workspace
+      # Docker socket deliberately NOT mounted on the internet-facing backend —
+      # it only enqueues forensics jobs; the internal `worker` runs docker exec.
+    expose:
+      - "8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      litellm:
+        condition: service_started
+
+  # ── Worker (ARQ) — reuses the BACKEND image with a different CMD ───────
+  # Same image, different start command. Saves a redundant image build,
+  # ensures backend and worker run identical code and Python deps.
+  worker:
+    image: ghcr.io/${IMAGE_OWNER:-tallcyberguy}/eksir-backend:${EKSIR_VERSION:-latest}
+    restart: unless-stopped
+    command: ["python", "-m", "isoc_api.worker"]
+    env_file:
+      - ./.env
+    healthcheck:
+      disable: true
+    volumes:
+      - isoc_workspace:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+  # ── Stateful services ──────────────────────────────────────────────────
+  # No app-image involvement — these are upstream images, deployed identically
+  # to dev. Persistent state lives in the volumes declared at the bottom.
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    expose:
+      - "6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    command: ["--config", "/app/litellm.config.yaml", "--port", "4000"]
+    env_file:
+      - ./.env
+    volumes:
+      - ../config/litellm.config.yaml:/app/litellm.config.yaml:ro
+    expose:
+      - "4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── REMnux sandbox (forensics; opt-in via `--profile forensics`) ───────
+  # Still locally-built — the REMnux image with our YARA-Forge ruleset is
+  # too custom to push to GHCR routinely (5GB+, mostly rule files). Build
+  # once on the prod VM with:
+  #   docker compose -f docker-compose.prod.yml --profile forensics build remnux
+  remnux:
+    build:
+      context: ./remnux
+      dockerfile: Dockerfile
+    image: isoc/remnux-with-yara-rules:latest
+    restart: unless-stopped
+    profiles: ["forensics"]
+    command: ["sleep", "infinity"]
+    networks:
+      - isolated
+    volumes:
+      - isoc_workspace:/workspace
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  isoc_workspace:
+
+networks:
+  default:
+    name: isoc-default
+  isolated:
+    name: isoc-isolated
+    internal: true

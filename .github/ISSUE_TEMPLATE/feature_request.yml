@@ -1,0 +1,71 @@
+name: Feature request
+description: Suggest a new capability or an improvement to EKSIR.
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement. Focus on the **problem** first, then the solution.
+        For open-ended ideas or design discussion, a [GitHub Discussion](../discussions) may be a better fit.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I searched existing issues and discussions and this is not a duplicate.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to do, and where does EKSIR get in the way today? Who is affected (L1 analyst, L2, admin, MSSP operator)?
+      placeholder: As an L2 analyst, when I reject a proposal I cannot record why, so...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you would like. Reference the relevant area (pipeline persona, a route, a connector/adapter, the gate UI, reports) if you know it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches, workarounds you use today, or why existing features do not cover this.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the system does this touch?
+      multiple: true
+      options:
+        - Ingestion / connectors / OCSF normalization
+        - Enrichment / threat intel
+        - Agent-persona synthesis / scoring
+        - Human sign-off gate / manager chat
+        - EDR/XDR response actions
+        - Reports
+        - Frontend / UI
+        - Deploy / ops
+        - Docs
+        - Other
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Mockups, links, related issues, or anything else that helps.
+    validations:
+      required: false

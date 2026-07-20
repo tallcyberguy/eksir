@@ -1,0 +1,18 @@
+# Trivy ignore list — accepted findings that won't be fixed.
+#
+# Add CVE IDs here only after consciously deciding to accept the risk. Each
+# entry MUST include:
+#   • CVE ID (one per line)
+#   • // reason: brief why we're accepting
+#   • // expires: YYYY-MM-DD when to re-review (max 6 months out)
+#
+# Example:
+#   CVE-2024-12345  // reason: only triggered by user-controlled input we
+#                   // sanitize at the API layer; upstream fix pending.
+#                   // expires: 2026-08-01
+#
+# When an expiry passes, remove the line and let CI re-flag the CVE. If still
+# unfixed, document why and renew. This is the policy that keeps the ignore
+# list from becoming a dumping ground.
+#
+# Reference docs: https://trivy.dev/latest/docs/configuration/filtering/

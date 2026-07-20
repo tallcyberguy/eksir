@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Background -->
+  <rect width="64" height="64" rx="10" fill="#07111F"/>
+
+  <!-- Outer hexagon -->
+  <polygon
+    points="32,5 58,19.5 58,44.5 32,59 6,44.5 6,19.5"
+    fill="#0B1D35"
+    stroke="#00D4FF"
+    stroke-width="1.8"
+  />
+
+  <!-- Inner hex ring (subtle) -->
+  <polygon
+    points="32,13 50,23.5 50,40.5 32,51 14,40.5 14,23.5"
+    fill="none"
+    stroke="#00D4FF"
+    stroke-width="0.8"
+    opacity="0.22"
+  />
+
+  <!-- Heartbeat / pulse line -->
+  <polyline
+    points="14,32 20,32 24,23 28,41 32,26 36,32 50,32"
+    fill="none"
+    stroke="#00D4FF"
+    stroke-width="2.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Subtle top-right corner accent lines -->
+  <line x1="46" y1="14" x2="52" y2="14" stroke="#00D4FF" stroke-width="1" opacity="0.4" stroke-linecap="round"/>
+  <line x1="49" y1="11" x2="49" y2="17" stroke="#00D4FF" stroke-width="1" opacity="0.4" stroke-linecap="round"/>
+</svg>

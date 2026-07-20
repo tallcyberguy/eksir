@@ -1,0 +1,99 @@
+# Dependabot configuration — automated dependency-update PRs.
+#
+# Strategy: weekly batched PRs for routine updates, immediate PRs for security
+# issues (handled separately by GitHub's vulnerability-alerts feature, which is
+# already enabled). Major-version bumps grouped per-ecosystem so we review
+# them together rather than as 30 separate PRs.
+
+version: 2
+updates:
+  # ── Python (backend + worker) ──────────────────────────────────────────
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Istanbul"
+    open-pull-requests-limit: 5
+    labels: ["deps", "python"]
+    commit-message:
+      prefix: "deps(py)"
+    groups:
+      # Patch + minor versions batched into one PR per week. Major bumps stay
+      # separate so each gets a focused review.
+      python-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # ── Next.js / React frontend ───────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Istanbul"
+    open-pull-requests-limit: 5
+    labels: ["deps", "javascript"]
+    commit-message:
+      prefix: "deps(js)"
+    groups:
+      js-minor-patch:
+        update-types: ["minor", "patch"]
+      types:
+        # @types/* packages bumped together — almost never a breaking change.
+        patterns: ["@types/*"]
+
+  # ── Marketing landing page (separate Next.js project) ──────────────────
+  - package-ecosystem: "npm"
+    directory: "/landing"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Istanbul"
+    open-pull-requests-limit: 3
+    labels: ["deps", "javascript", "landing"]
+    commit-message:
+      prefix: "deps(landing)"
+    groups:
+      landing-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # ── Docker base images ─────────────────────────────────────────────────
+  # When python:3.12-slim or node:22-alpine gets a CVE patch, Dependabot
+  # opens a PR with the updated digest. Reviewing the diff is how you
+  # consciously decide to bump the pin.
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Istanbul"
+    labels: ["deps", "docker"]
+    commit-message:
+      prefix: "deps(docker)"
+
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Istanbul"
+    labels: ["deps", "docker"]
+    commit-message:
+      prefix: "deps(docker)"
+
+  # ── GitHub Actions themselves (action versions) ────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Istanbul"
+    labels: ["deps", "ci"]
+    commit-message:
+      prefix: "deps(ci)"

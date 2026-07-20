@@ -1,0 +1,32 @@
+EKSIR (repo codename: isoc)
+Copyright 2026 Hüseyin Eksi
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+-------------------------------------------------------------------------------
+First-party components authored by the project and released under Apache-2.0:
+-------------------------------------------------------------------------------
+  - vendor/alert-memory-mcp/  — alert normalization, auto-close rules, and the
+    bge-m3 / Qdrant vector store, vendored into the backend/worker image.
+  - backend/scripts/triage.py — threat-intelligence triage helper, vendored
+    into the backend/worker image.
+
+-------------------------------------------------------------------------------
+Third-party components NOT redistributed as source in this repository
+(pulled at container-build or runtime; each retains its own upstream license):
+-------------------------------------------------------------------------------
+  - REMnux (remnux/remnux-distro) — malware-analysis base image, used via
+    `docker exec` for the optional forensics profile. See https://remnux.org.
+  - YARA-Forge rulesets — downloaded into the REMnux image at build time from
+    https://github.com/YARAHQ/yara-forge/releases (NOT stored in this repo).
+    The aggregated ruleset carries the licenses of its 45+ upstream sources;
+    consult YARA-Forge for the per-source terms before redistributing a built
+    image that bundles them.
+  - Python, Node.js, and other dependencies declared in backend/pyproject.toml,
+    frontend/package.json, and landing/package.json retain their own licenses.
+  - Third-party services reached over the network (Anthropic, OpenAI, Trend
+    Micro Vision One, Microsoft Defender/Graph, VirusTotal, AbuseIPDB, OTX,
+    abuse.ch, IPinfo) are governed by their respective terms of service.
+
+If you redistribute a built container image (rather than source), review the
+upstream terms of the REMnux base image and the YARA-Forge ruleset it bundles.
