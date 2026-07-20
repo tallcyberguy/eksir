@@ -1,0 +1,52 @@
+{
+  "timestamp": "2026-04-22T17:04:39.149+0300",
+  "rule": {
+    "level": 12,
+    "description": "Suricata: Command Injection Attack",
+    "id": "86645",
+    "mitre": {
+      "id": ["T1190"],
+      "tactic": ["Initial Access"],
+      "technique": ["Exploit Public-Facing Application"]
+    },
+    "groups": ["suricata"]
+  },
+  "agent": {
+    "id": "050",
+    "name": "localhost.localdomain",
+    "ip": "10.0.13.52"
+  },
+  "data": {
+    "timestamp": "2026-04-22T17:04:40.086351+0300",
+    "flow_id": 84524242343758,
+    "in_iface": "enp4s0f1",
+    "event_type": "alert",
+    "src_ip": "198.51.100.201",
+    "src_port": 60252,
+    "dest_ip": "10.0.13.33",
+    "dest_port": 80,
+    "proto": "TCP",
+    "alert": {
+      "action": "allowed",
+      "signature_id": 2060800,
+      "signature": "ET WEB_SPECIFIC_APPS PHP-CGI OS Command Injection (soft hyphen) (CVE-2024-4577)",
+      "category": "Web Application Attack",
+      "severity": 1,
+      "metadata": {
+        "cve": ["CVE_2024_4577"],
+        "mitre_tactic_id": ["TA0001"],
+        "mitre_tactic_name": ["Initial_Access"],
+        "mitre_technique_id": ["T1190"],
+        "tag": ["CISA_KEV", "Exploit"]
+      }
+    },
+    "http": {
+      "hostname": "203.0.113.53",
+      "url": "/hello.world?%ADd+allow_url_include%3d1+%ADd+auto_prepend_file%3dphp://input",
+      "http_user_agent": "libredtail-http",
+      "http_method": "POST",
+      "status": 404
+    },
+    "payload_printable": "POST /hello.world?%ADd+allow_url_include%3d1+%ADd+auto_prepend_file%3dphp://input HTTP/1.1"
+  }
+}

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="{{ case.locale or 'en' }}">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{{ case.title or labels.untitled }} · {{ case.case_number }}</title>
+</head>
+{# Inline CSS only — this is sent as an email and webmail clients strip <style>. #}
+{# Section heading glyphs (unicode, render identically across clients):
+     ◆  incident analysis      ■  incident details          ❐  related incidents
+     ▲  critical impact         ◇  threat intelligence       ▸  recommended actions
+     ●  urgent action badge
+   Chosen over emojis (📝 📋 🚩 📡 ✅ 🚨) to avoid the AI-generated-newsletter look. #}
+<body style="margin:0; padding:0; background:#07111F; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:#E6EDF7; line-height:1.55;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#07111F;">
+    <tr>
+      <td align="center" style="padding:24px 16px;">
+        <table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0"
+               style="max-width:640px; width:100%; background:#0B1D35; border:1px solid #1E3061; border-radius:10px; overflow:hidden;">
+
+          {# ── Header bar (gradient) ───────────────────────────────── #}
+          <tr>
+            <td style="background:linear-gradient(90deg,#00D4FF 0%,#0066CC 100%); padding:14px 22px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td style="vertical-align:middle;">
+                    <span style="display:inline-block; width:28px; height:28px; line-height:28px; text-align:center; background:#07111F; color:#00D4FF; border-radius:6px; font-family:monospace; font-size:16px; vertical-align:middle;">⬡</span>
+                    <span style="font-weight:600; letter-spacing:1.5px; margin-left:10px; color:#07111F; vertical-align:middle; font-size:15px;">EKSIR · SOC Notification</span>
+                  </td>
+                  <td align="right" style="vertical-align:middle;">
+                    <span style="font-family:monospace; font-size:11px; color:#07111F; opacity:0.85;">{{ case.case_number }}</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          {# ── Top facts strip: severity + customer (above the fold) ── #}
+          {% set sev_top = (incident.severity or '') | upper %}
+          <tr>
+            <td style="background:#0E2044; padding:10px 22px; border-bottom:1px solid #1E3061;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td style="vertical-align:middle;">
+                    {% if sev_top %}
+                    <span style="display:inline-block; padding:3px 10px; border-radius:3px; font-weight:700; font-size:11px; letter-spacing:1px;
+                      {% if sev_top == 'CRITICAL' %}background:#FF4B6E; color:#fff;
+                      {% elif sev_top == 'HIGH'  %}background:#F4A12C; color:#07111F;
+                      {% elif sev_top == 'MEDIUM'%}background:#00E5FF; color:#07111F;
+                      {% else %}background:#A6B0CF; color:#07111F;{% endif %}
+                    ">{{ sev_top }}</span>
+                    {% endif %}
+                    {% if customer_name %}
+                    <span style="margin-left:12px; font-size:12px; color:#E6EDF7;">{{ customer_name }}</span>
+                    {% endif %}
+                    {% if incident.created_at_pretty %}
+                    <span style="margin-left:12px; font-size:11px; color:#A6B0CF;">· {{ incident.created_at_pretty }}</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          {# ── Case title ───────────────────────────────────────────── #}
+          <tr>
+            <td style="padding:20px 22px 0 22px;">
+              <h1 style="margin:0; font-size:20px; color:#E6EDF7; line-height:1.3;">
+                {{ case.title or labels.untitled }}
+              </h1>
+            </td>
+          </tr>
+
+          {# ── Incident Analysis ────────────────────────────────────── #}
+          {% if case.incident_analysis %}
+          <tr>
+            <td style="padding:18px 22px 0 22px;">
+              <h2 style="margin:0 0 8px 0; font-size:12px; color:#00D4FF; letter-spacing:1.5px; text-transform:uppercase;">
+                ◆ {{ labels.incident_analysis }}
+              </h2>
+              <div style="background:#0E2044; border-left:3px solid #00D4FF; padding:12px 14px; border-radius:4px; font-size:14px; white-space:pre-wrap;">{{ case.incident_analysis }}</div>
+            </td>
+          </tr>
+          {% endif %}
+
+          {# ── Critical Impact (lean: tighter padding, smaller font, no big banner) ── #}
+          {% if case.critical_impact_summary %}
+          <tr>
+            <td style="padding:14px 22px 0 22px;">
+              <h2 style="margin:0 0 8px 0; font-size:12px; color:#00D4FF; letter-spacing:1.5px; text-transform:uppercase;">
+                ▲ {{ labels.critical_impact }}
+              </h2>
+              <div style="background:#3A0E18; border-left:3px solid #FF4B6E; padding:10px 14px; border-radius:4px; font-size:13px; color:#FFD7DE; white-space:pre-wrap;">{{ case.critical_impact_summary }}</div>
+            </td>
+          </tr>
+          {% endif %}
+
+          {# ── Threat Intelligence — structured table (replaces paragraph) ── #}
+          {% if threat_intel and (threat_intel.indicators or threat_intel.attribution or threat_intel.detection or threat_intel.feed_sources) %}
+          <tr>
+            <td style="padding:14px 22px 0 22px;">
+              <h2 style="margin:0 0 8px 0; font-size:12px; color:#00D4FF; letter-spacing:1.5px; text-transform:uppercase;">
+                ◇ {{ labels.threat_intel }}
+              </h2>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                     style="background:#0E2044; border-radius:4px; font-size:13px;">
+                {% for ind in threat_intel.indicators %}
+                <tr>
+                  <td style="padding:8px 14px; color:#A6B0CF; width:130px; vertical-align:top; border-bottom:1px solid #1E3061;">{{ ind.type_label }}</td>
+                  <td style="padding:8px 14px; color:#E6EDF7; font-family:monospace; word-break:break-all; border-bottom:1px solid #1E3061;">
+                    {{ ind.value }}
+                    {% if ind.vt_text %}<br><span style="font-family:inherit; font-size:12px;
+                      {% if ind.vt_color == 'red' %}color:#FF4B6E;{% elif ind.vt_color == 'yellow' %}color:#F4A12C;{% elif ind.vt_color == 'green' %}color:#00E08F;{% else %}color:#A6B0CF;{% endif %}
+                    ">VT: {{ ind.vt_text }}</span>{% endif %}
+                    {% if ind.location %}<br><span style="font-family:inherit; font-size:12px; color:#A6B0CF;">{{ ind.location }}</span>{% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+                {% if threat_intel.detection %}
+                <tr>
+                  <td style="padding:8px 14px; color:#A6B0CF; width:130px; border-bottom:1px solid #1E3061;">{{ labels.ti_detection }}</td>
+                  <td style="padding:8px 14px; color:#E6EDF7; border-bottom:1px solid #1E3061;">{{ threat_intel.detection }}</td>
+                </tr>
+                {% endif %}
+                {% if threat_intel.feed_sources %}
+                <tr>
+                  <td style="padding:8px 14px; color:#A6B0CF; width:130px; border-bottom:1px solid #1E3061;">{{ labels.ti_feeds }}</td>
+                  <td style="padding:8px 14px; color:#E6EDF7; border-bottom:1px solid #1E3061;">{{ threat_intel.feed_sources }}</td>
+                </tr>
+                {% endif %}
+                {% if threat_intel.attribution %}
+                <tr>
+                  <td style="padding:8px 14px; color:#A6B0CF; width:130px;{% if threat_intel.prior_cases_note %} border-bottom:1px solid #1E3061;{% endif %}">{{ labels.ti_attribution }}</td>
+                  <td style="padding:8px 14px; color:#E6EDF7;{% if threat_intel.prior_cases_note %} border-bottom:1px solid #1E3061;{% endif %}">{{ threat_intel.attribution }}</td>
+                </tr>
+                {% endif %}
+                {% if threat_intel.prior_cases_note %}
+                <tr>
+                  <td style="padding:8px 14px; color:#A6B0CF; width:130px;">{{ labels.ti_prior_cases }}</td>
+                  <td style="padding:8px 14px; color:#E6EDF7;">{{ threat_intel.prior_cases_note }}</td>
+                </tr>
+                {% endif %}
+              </table>
+            </td>
+          </tr>
+          {% elif case.threat_intel_summary %}
+          {# Back-compat: old cases generated before the structured TI table.
+             Render their legacy paragraph so they're still readable. #}
+          <tr>
+            <td style="padding:14px 22px 0 22px;">
+              <h2 style="margin:0 0 8px 0; font-size:12px; color:#00D4FF; letter-spacing:1.5px; text-transform:uppercase;">
+                ◇ {{ labels.threat_intel }}
+              </h2>
+              <div style="background:#0E2044; padding:12px 14px; border-radius:4px; font-size:14px; white-space:pre-wrap;">{{ case.threat_intel_summary }}</div>
+            </td>
+          </tr>
+          {% endif %}
+
+          {# ── Actions We Took ──────────────────────────────────────── #}
+          {% if case.actions_taken %}
+          <tr>
+            <td style="padding:14px 22px 0 22px;">
+              <h2 style="margin:0 0 8px 0; font-size:12px; color:#2EE6A6; letter-spacing:1.5px; text-transform:uppercase;">
+                ✓ {{ labels.actions_taken }}
+              </h2>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                     style="background:#0E2044; border-radius:4px; padding:4px;">
+                {% for action in case.actions_taken %}
+                  <tr>
+                    <td style="padding:7px 12px; vertical-align:top; font-size:14px;">
+                      <span style="color:#2EE6A6; margin-right:6px;">✓</span>
+                      <span style="color:#E6EDF7;">{{ action }}</span>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </table>
+            </td>
+          </tr>
+          {% endif %}
+
+          {# ── Recommended Actions ──────────────────────────────────── #}
+          {% if case.recommended_actions %}
+          <tr>
+            <td style="padding:14px 22px 0 22px;">
+              <h2 style="margin:0 0 8px 0; font-size:12px; color:#00D4FF; letter-spacing:1.5px; text-transform:uppercase;">
+                ▸ {{ labels.recommended_actions }}
+              </h2>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                     style="background:#0E2044; border-radius:4px; padding:4px;">
+                {% for action in case.recommended_actions %}
+                  {% set urgent = action.startswith('URGENT:') or action.startswith('URGENT: ') %}
+                  {% set body = action[7:].lstrip(':').lstrip() if urgent else action %}
+                  <tr>
+                    <td style="padding:7px 12px; vertical-align:top; font-size:14px;">
+                      {% if urgent %}
+                        <span style="display:inline-block; padding:1px 6px; border-radius:3px; background:#FF4B6E; color:#fff; font-size:10px; font-weight:700; margin-right:6px; letter-spacing:1px;">● {{ labels.urgent }}</span>
+                      {% else %}
+                        <span style="color:#00D4FF; margin-right:6px;">▸</span>
+                      {% endif %}
+                      <span style="color:#E6EDF7;">{{ body }}</span>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </table>
+            </td>
+          </tr>
+          {% endif %}
+
+          {# ── Incident Details (table — moved to bottom, factual context) ─── #}
+          <tr>
+            <td style="padding:14px 22px 0 22px;">
+              <h2 style="margin:0 0 8px 0; font-size:12px; color:#00D4FF; letter-spacing:1.5px; text-transform:uppercase;">
+                ■ {{ labels.incident_details }}
+              </h2>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                     style="background:#0E2044; border-radius:4px; font-size:13px;">
+                {% set rows = [
+                  (labels.field_case_id,    case.case_number),
+                  (labels.field_attack_type, case.attack_type_label),
+                  (labels.field_rule,        incident.rule_name),
+                  (labels.field_source,      incident.source_product),
+                  (labels.field_time,        incident.created_at_pretty),
+                ] %}
+                {% for label, value in rows %}
+                  {% if value %}
+                  <tr>
+                    <td style="padding:7px 14px; color:#A6B0CF; width:130px;{% if not loop.last %} border-bottom:1px solid #1E3061;{% endif %}">{{ label }}</td>
+                    <td style="padding:7px 14px; color:#E6EDF7;{% if not loop.last %} border-bottom:1px solid #1E3061;{% endif %}">{{ value }}</td>
+                  </tr>
+                  {% endif %}
+                {% endfor %}
+              </table>
+            </td>
+          </tr>
+
+          {# ── Related incidents (bundle, only when N > 1) ─────────── #}
+          {% if attached_incidents and attached_incidents | length > 1 %}
+          <tr>
+            <td style="padding:14px 22px 0 22px;">
+              <h2 style="margin:0 0 8px 0; font-size:12px; color:#00D4FF; letter-spacing:1.5px; text-transform:uppercase;">
+                ❐ {{ labels.related_incidents }} ({{ attached_incidents | length }})
+              </h2>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                     style="background:#0E2044; border-radius:4px; font-size:12px;">
+                <tr style="background:#0B1D35;">
+                  <th align="left" style="padding:8px 12px; color:#A6B0CF; font-weight:600; text-transform:uppercase; letter-spacing:1px; font-size:10px; border-bottom:1px solid #1E3061;">{{ labels.col_case }}</th>
+                  <th align="left" style="padding:8px 12px; color:#A6B0CF; font-weight:600; text-transform:uppercase; letter-spacing:1px; font-size:10px; border-bottom:1px solid #1E3061;">{{ labels.col_rule }}</th>
+                  <th align="left" style="padding:8px 12px; color:#A6B0CF; font-weight:600; text-transform:uppercase; letter-spacing:1px; font-size:10px; border-bottom:1px solid #1E3061;">{{ labels.col_severity }}</th>
+                  <th align="left" style="padding:8px 12px; color:#A6B0CF; font-weight:600; text-transform:uppercase; letter-spacing:1px; font-size:10px; border-bottom:1px solid #1E3061;">{{ labels.col_time }}</th>
+                </tr>
+                {% for inc in attached_incidents %}
+                <tr>
+                  <td style="padding:8px 12px; color:#E6EDF7; font-family:monospace;{% if not loop.last %} border-bottom:1px solid #1E3061;{% endif %}">{{ inc.case_number }}</td>
+                  <td style="padding:8px 12px; color:#E6EDF7;{% if not loop.last %} border-bottom:1px solid #1E3061;{% endif %}">{{ inc.rule_name or '—' }}</td>
+                  <td style="padding:8px 12px;{% if not loop.last %} border-bottom:1px solid #1E3061;{% endif %}">
+                    {% set sev = (inc.severity or '') | upper %}
+                    <span style="display:inline-block; padding:1px 6px; border-radius:3px; font-weight:600; font-size:10px;
+                      {% if sev == 'CRITICAL' %}background:#FF4B6E; color:#fff;
+                      {% elif sev == 'HIGH'  %}background:#F4A12C; color:#07111F;
+                      {% elif sev == 'MEDIUM'%}background:#00E5FF; color:#07111F;
+                      {% else %}background:#A6B0CF; color:#07111F;{% endif %}
+                    ">{{ sev or '—' }}</span>
+                  </td>
+                  <td style="padding:8px 12px; color:#A6B0CF;{% if not loop.last %} border-bottom:1px solid #1E3061;{% endif %}">{{ inc.created_at[:16] if inc.created_at else '—' }}</td>
+                </tr>
+                {% endfor %}
+              </table>
+            </td>
+          </tr>
+          {% endif %}
+
+          {# ── Spacer before footer ─── #}
+          <tr><td style="padding:14px 0 0 0;"></td></tr>
+
+          {# ── Footer ────────────────────────────────────────────────── #}
+          <tr>
+            <td style="padding:14px 22px; background:#07111F; text-align:center; border-top:1px solid #1E3061;">
+              <div style="font-size:11px; color:#A6B0CF; letter-spacing:1px;">
+                — EKSIR · Incident Response Team —
+              </div>
+              <div style="font-size:10px; color:#A6B0CF; margin-top:4px; opacity:0.7;">
+                {{ labels.generated_at }} {{ generated_at }}
+              </div>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

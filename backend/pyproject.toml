@@ -1,0 +1,110 @@
+[project]
+name = "isoc-api"
+version = "0.1.0"
+description = "ISOC backend — analyst workbench orchestrator"
+requires-python = ">=3.11,<3.14"
+# `readme` deliberately omitted: pointing at ../README.md breaks modern
+# setuptools (it refuses to read files outside the project dir). Since we
+# don't publish this to PyPI, no README on the package is fine.
+
+dependencies = [
+    # Web
+    "fastapi==0.139.0",
+    "uvicorn[standard]==0.51.0",
+    "python-multipart==0.0.32",
+    "websockets==14.1",
+
+    # Settings / validation
+    "pydantic==2.13.4",
+    "pydantic-settings==2.14.2",
+    "email-validator==2.3.0",
+
+    # Database
+    "sqlalchemy[asyncio]==2.0.51",
+    "asyncpg==0.31.0",
+    "alembic==1.18.5",
+    "psycopg[binary]==3.3.4",      # sync driver for Alembic
+
+    # Queue / cache
+    "arq==0.28.0",
+    "redis==5.2.1",
+
+    # Vector DB (must match alert-memory-mcp's pin)
+    "qdrant-client==1.18.0",
+
+    # LLM
+    "openai==2.44.0",              # used to talk to LiteLLM (OpenAI-compatible)
+    "tiktoken==0.13.0",             # token counting for budget tracking
+
+    # Agentic substrate (F8) — StateGraph orchestration + checkpointing.
+    # Durable/Postgres checkpointing additionally needs langgraph-checkpoint-postgres
+    # (not pinned yet; the default checkpointer is in-memory MemorySaver).
+    "langgraph==1.2.9",
+
+    # Auth — use bcrypt directly (passlib is unmaintained and breaks on bcrypt 4.2+)
+    "bcrypt==4.2.1",
+    "PyJWT==2.13.0",
+    "pyotp==2.10.0",                # TOTP (RFC 6238) for optional per-user MFA
+    "segno==1.6.6",                # pure-Python QR generation (MFA enrollment, inline data-URI)
+    "stix2==3.0.2",                # STIX 2.1 export of analyst-confirmed IOCs (intel producer)
+    "weasyprint==69.0",            # HTML/CSS → PDF for branded reports (lazy-imported; needs native Pango/Cairo — see backend/Dockerfile)
+
+    # Utilities
+    "httpx==0.28.1",
+    "requests==2.34.2",            # used by the vendored triage.py
+    "orjson==3.11.9",
+    "pyyaml==6.0.3",
+    "structlog==26.1.0",
+    "tenacity==9.1.4",
+    "python-magic==0.4.27",
+    "python-whois==0.9.6",         # used by the vendored triage.py for domain WHOIS
+    "dnspython==2.8.0",            # EASM recon: MX/TXT/NS/SPF/DMARC record lookups
+    "jinja2==3.1.6",               # customer notification HTML templates
+    "bleach==6.4.0",               # sanitize analyst-edited customer HTML before send
+    "slowapi==0.1.10",              # rate limiting for /auth/login + /alerts/paste
+    "packaging>=24.0",             # transitive of limits (slowapi dep); declared explicitly because limits' own metadata sometimes misses it
+    "cryptography>=43.0.0",        # Fernet symmetric encryption for stored LLM API keys
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==6.0.0",
+    "ruff==0.15.21",
+    "mypy==1.13.0",
+    "httpx==0.28.1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["isoc_api*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC"]
+ignore = [
+    "E501",     # line length — handled by formatter, not enforced
+    "B008",     # function call in arg default — FastAPI's Depends() pattern
+    "B904",     # `raise X from Y` — useful but lots of false positives in error wrappers
+    "E701",     # multiple statements on one line (if x: stmt = ...) — common in this codebase
+    "E702",     # multiple statements on one line with semicolon
+    "E741",     # ambiguous variable name (l, I, O) — fine when scoped
+    "F541",     # f-string without placeholders — harmless
+    "UP017",    # `datetime.timezone.utc` → `datetime.UTC` — backwards-compat with 3.10
+    "UP035",    # deprecated typing imports — keep for clarity
+    "UP037",    # quoted annotations — useful for forward refs
+    "UP038",    # isinstance tuple — old style is fine
+    "UP041",    # asyncio.TimeoutError vs TimeoutError — clearer with prefix
+    "ASYNC109", # async function with timeout param — design choice, not a bug
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

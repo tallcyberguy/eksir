@@ -1,0 +1,13 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/tallcyberguy/eksir/security/advisories/new
+    about: >-
+      Do NOT open a public issue for security vulnerabilities. Use GitHub Private
+      Vulnerability Reporting here (or email hello@eksir.com). See SECURITY.md for the policy.
+  - name: Security policy (SECURITY.md)
+    url: https://github.com/tallcyberguy/eksir/blob/main/SECURITY.md
+    about: How to report vulnerabilities responsibly, supported versions, and disclosure expectations.
+  - name: Questions and discussion
+    url: https://github.com/tallcyberguy/eksir/discussions
+    about: Ask questions, share ideas, and discuss usage. For anything else, email hello@eksir.com.

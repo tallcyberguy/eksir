@@ -1,0 +1,28 @@
+The following is an automated response sent to you by the QRadar event custom rules engine:
+
+                        Apr 22, 2026 5:52:06 PM TRT
+
+
+                        Rule Name:                                     CONTOSO: Recon: Enumeration Activity Occurred on Web Server [IIS] [DE.CM.1] [TA0007]
+                        Rule Description:
+
+                        Source IP:                                     10.0.3.45
+                        Source Port:                                   0
+                        Source Username (from event):                  S-1-5-21-1111111111-2222222222-3333333333-1105
+
+                        Destination IP:                                10.0.3.45
+                        Destination Port:                              444
+                        Destination Username (from Asset Identity):    N/A
+                        Destination Network:                           other
+
+                        Protocol:                                      other(255)
+                        QID:                                           5250022
+
+                        Event Name:                                    HTTP 404 - Not Found
+                        Event Description:                             404 - Not found.
+                        Category:                                      Resource Unavailable
+
+                        Log Source ID:                                 6668
+                        Log Source Name:                               WEBSRV02 @ 10.0.2.226
+
+                        Payload:                                       <13>Apr 22 17:57:13 WEBSRV01 AgentDevice=MSIIS       AgentLogFile=MAILSRV01\W3SVC2\u_extend1066_x.log   PluginVersion=7.3.1.28  AgentLogFormat=W3C      AgentLogProtocol=W3C    date=2026-04-22 time=14:57:07   s-ip=fe80::9088:d1f9:83f1:6ee9%2        cs-method=GET   cs-uri-stem=/owa/service.svc/s/GetFileAttachment        cs-uri-query=id=SYNTHETIC-ATTACHMENT-ID&X-OWA-CANARY=SYNTHETIC-OWA-CANARY-TOKEN.&isImagePreview=True s-port=444      cs-username=S-1-5-21-1111111111-2222222222-3333333333-1105     c-ip=fe80::9088:d1f9:83f1:6ee9%2        cs(User-Agent)=Mozilla/5.0+(Windows+NT+10.0;+Win64;+x64)+AppleWebKit/537.36+(KHTML,+like+Gecko)+Chrome/147.0.0.0+Safari/537.36  cs(Referer)=-   sc-status=404   sc-substatus=0  sc-win32-status=0       time-taken=6

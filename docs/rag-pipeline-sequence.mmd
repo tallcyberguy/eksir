@@ -1,0 +1,75 @@
+sequenceDiagram
+    autonumber
+    participant SRC as Alert Source<br/>(webhook / email / API)
+    participant API as ISOC API<br/>(FastAPI)
+    participant W as ARQ Worker<br/>(orchestrator)
+    participant N as Normalizer<br/>(alert-memory-mcp)
+    participant E as bge-m3<br/>(Ollama embedder)
+    participant Q as Qdrant<br/>(vector DB)
+    participant TI as Enrichment<br/>(triage.py + TI feeds)
+    participant AC as Auto-Close<br/>(YAML rules)
+    participant B as briefing.py
+    participant LLM as LLM<br/>(Seneca / LiteLLM)
+    participant DB as Postgres
+
+    SRC->>API: POST /webhooks/{source} (HMAC-signed alert)
+    API->>W: enqueue pipeline_run(alert)
+    W->>N: normalize(raw_alert)
+    N-->>W: NORMALIZED {fields, embed_text}
+
+    rect rgb(40, 30, 60)
+    Note over W,Q: RAG retrieval — semantic memory of past verdicts
+    W->>E: embed(embed_text)
+    E-->>W: dense vector (1024d)
+    W->>Q: hybrid_search(dense + sparse, k=10)
+    Q-->>W: EXACT_MATCH (score ≥ 0.90)
+    Q-->>W: N_WAY agreement (≥ 3/5 priors)
+    Q-->>W: SIMILAR (top-10 prior cases + verdicts)
+    W->>Q: kb_search(embed_text)
+    Q-->>W: KB_HITS (runbooks / allowlists / assets)
+    end
+
+    par Parallel enrichment
+        W->>TI: triage(extracted IOCs)
+        TI-->>W: VT / AbuseIPDB / OTX / MalwareBazaar / ThreatFox
+    and
+        W->>TI: whois / rDNS / passive-DNS
+        TI-->>W: IP_ENRICHMENT
+    and
+        W->>TI: local feed match (~91k IOCs)
+        TI-->>W: THREAT_INTEL_MATCHES
+    end
+
+    W->>AC: evaluate(normalized + enrichment)
+    AC-->>W: AUTOCLOSE_VERDICT (pre / post) or none
+
+    W->>B: render(normalized, RAG hits, enrichment, autoclose, temporal)
+    B-->>W: BRIEFING (markdown, capped sections)
+
+    rect rgb(30, 50, 40)
+    Note over W,LLM: Tier-1 — fast classifier (cheap / local)
+    W->>LLM: complete(FAST_CLASSIFIER, briefing)
+    LLM-->>W: {verdict, confidence, reason} (JSON)
+    end
+
+    alt Confident AND corroboration gate passes (exact≥0.9 / n_way≥3 / autoclose)
+        W->>W: short-circuit — skip deep synthesis (cap cost)
+    else Ambiguous, sensitive rule, or any TP
+        rect rgb(30, 50, 40)
+        Note over W,LLM: Tier-2 — deep synthesis
+        W->>LLM: complete(SYSTEM_PROMPT, briefing)
+        LLM-->>W: SOC analyst report (markdown)
+        end
+        W->>W: hallucination check (report IOCs ⊆ briefing IOCs)
+    end
+
+    rect rgb(40, 30, 60)
+    Note over W,Q: RAG feedback loop — today's verdict becomes tomorrow's prior
+    W->>E: embed(case + verdict)
+    E-->>W: vector
+    W->>Q: upsert(alert, verdict, human_verified flag)
+    end
+
+    W->>DB: persist incident + enrichment + llm_calls + transcript
+    DB-->>API: status = awaiting_review
+    API-->>SRC: 200 OK

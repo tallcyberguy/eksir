@@ -1,0 +1,59 @@
+# Local pre-commit hooks — run automatically on every `git commit`.
+#
+# Replaces the (paid) GitHub Advanced Security secret-scanning push-protection
+# feature on free tier: detect-secrets blocks the commit locally if it spots
+# anything API-key-shaped. Plus ruff catches the same backend lint that CI does,
+# but in <1s instead of waiting for an Actions run.
+#
+# Install once:   pre-commit install
+# Run manually:   pre-commit run --all-files
+# Bypass once:    git commit --no-verify    (use sparingly)
+
+repos:
+  # ── File hygiene ───────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Don't strip trailing whitespace inside markdown (two-space line breaks)
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=1024']   # 1MB cap — anything larger should be in object storage
+      - id: check-yaml
+        # Helm + GH Actions use !!str tag in places; relax syntax check.
+        args: ['--allow-multiple-documents']
+      - id: check-json
+        # Frontend tsconfig uses comments (JSONC); skip it.
+        exclude: '^frontend/tsconfig\.json$'
+
+  # ── Secret detection (replaces GHAS push protection) ───────────────────
+  # Scans the diff at commit time for things that look like API keys, tokens,
+  # private keys. Maintains a baseline of known-not-secret-looking strings so
+  # we don't fight the same false positives every commit.
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        # Don't scan binary/large/vendored stuff.
+        exclude: |
+          (?x)^(
+              package-lock\.json|
+              \.secrets\.baseline|
+              .*\.lock|
+              .*\.svg
+          )$
+
+  # ── Python lint (ruff, matches CI config) ──────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      # Auto-fix import order + unused imports + style. Stages the fixed
+      # version so the commit goes through clean.
+      - id: ruff
+        args: ['--fix', '--exit-non-zero-on-fix']
+        files: '^backend/.+\.py$'
+      - id: ruff-format
+        files: '^backend/.+\.py$'

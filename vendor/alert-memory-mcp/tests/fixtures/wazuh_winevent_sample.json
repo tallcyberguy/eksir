@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-04-22T15:53:40.788+0300",
+  "rule": {
+    "level": 12,
+    "description": "Windows Multiple authentication failures followed by a success",
+    "id": "60235",
+    "mitre": {
+      "id": ["T1110"],
+      "tactic": ["Credential Access"],
+      "technique": ["Brute Force"]
+    },
+    "groups": ["windows", "windows_security", "authentication_failures"]
+  },
+  "agent": {
+    "id": "001",
+    "name": "DC01",
+    "ip": "10.0.13.247"
+  },
+  "data": {
+    "win": {
+      "system": {
+        "eventID": "4769",
+        "computer": "DC01.fabrikam.local",
+        "severityValue": "AUDIT_SUCCESS"
+      },
+      "eventdata": {
+        "targetUserName": "DC01$@FABRIKAM.LOCAL",
+        "targetDomainName": "FABRIKAM.LOCAL",
+        "serviceName": "DC01$",
+        "ipAddress": "::1",
+        "ipPort": "0",
+        "status": "0x0",
+        "logonType": "3",
+        "authenticationPackageName": "Kerberos"
+      }
+    }
+  }
+}

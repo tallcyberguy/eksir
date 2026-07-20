@@ -1,0 +1,102 @@
+flowchart TB
+    %% ===== Ingestion =====
+    subgraph ING["Alert & Sample Ingestion"]
+        direction LR
+        WH["Webhooks<br/>Wazuh · Suricata · QRadar · generic<br/>(HMAC-signed)"]
+        PASTE["Paste-text / Email / API"]
+        UPLOAD["File upload<br/>(forensics)"]
+    end
+
+    %% ===== Edge / UI =====
+    CADDY["Caddy<br/>reverse proxy · auto-TLS<br/>:80 / :443"]
+    subgraph FE["Frontend"]
+        NEXT["Next.js 15 (App Router) :3000<br/>Dashboard · Incidents · Cases<br/>Forensics · Admin · Audit"]
+    end
+
+    %% ===== Backend =====
+    subgraph BE["Backend — FastAPI orchestrator :8000"]
+        direction TB
+        API["Routes<br/>webhooks · alerts · incidents · cases<br/>forensics · threat-intel · v1actions · admin · audit"]
+        AUTH["Auth<br/>JWT · RBAC · tenant-scoped"]
+        WORKER["ARQ Worker (async jobs)<br/>pipeline_run · synthesize_only<br/>forensics_static/triage · threat_intel_sync (cron)"]
+        subgraph PIPE["Pipeline modules"]
+            direction LR
+            NORM["normalizer"]
+            BRIEF["briefing.py"]
+            ENR["enrichment"]
+            AUTOC["auto-close YAML"]
+            HALL["hallucination check"]
+        end
+    end
+
+    %% ===== Data layer =====
+    subgraph DATA["Data layer"]
+        direction LR
+        PG[("Postgres<br/>incidents · cases · llm_calls · config")]
+        REDIS[("Redis<br/>ARQ queue · LiteLLM cache")]
+        QD[("Qdrant<br/>alerts_v2 · iocs_v2 · knowledge_base_v2")]
+    end
+
+    %% ===== AI layer =====
+    subgraph AI["AI / LLM layer"]
+        direction LR
+        LITELLM["LiteLLM router :4000<br/>isoc-fast / isoc-deep"]
+        OLLAMA["Ollama<br/>Seneca (8B, 16k) · bge-m3 embed"]
+        VLLM["vLLM (optional GPU)<br/>Qwen2.5"]
+        CLAUDE["Anthropic Claude<br/>(hosted, optional)"]
+    end
+
+    %% ===== Analysis engines =====
+    subgraph ANA["Analysis engines"]
+        direction LR
+        REMNUX["REMnux (docker exec)<br/>peframe · capa · floss · YARA-Forge (11.6k)"]
+        TRIAGE["triage.py (subprocess)<br/>VT · AbuseIPDB · OTX · MB · ThreatFox"]
+    end
+
+    %% ===== External =====
+    subgraph EXT["External services"]
+        direction LR
+        FEEDS["OSINT TI feeds<br/>ET · Tor · abuse.ch (~91k IOCs)"]
+        V1["Trend Micro Vision One<br/>isolate · blocklist"]
+        SMTP["SMTP<br/>customer case delivery"]
+    end
+
+    %% ===== Flows =====
+    WH --> CADDY
+    PASTE --> CADDY
+    UPLOAD --> CADDY
+    CADDY --> NEXT
+    NEXT -->|/api/v1/*| API
+    API --> AUTH
+    API -->|enqueue| REDIS
+    REDIS --> WORKER
+    WORKER --> PIPE
+
+    NORM --> QD
+    ENR --> QD
+    ENR --> TRIAGE
+    ENR --> FEEDS
+    BRIEF --> LITELLM
+    WORKER --> REMNUX
+    WORKER --> PG
+
+    LITELLM --> OLLAMA
+    LITELLM --> VLLM
+    LITELLM --> CLAUDE
+    ENR --> OLLAMA
+    QD -.->|bge-m3 embeddings| OLLAMA
+
+    API --> V1
+    API --> SMTP
+    API --> PG
+    TRIAGE --> FEEDS
+
+    %% ===== Styling =====
+    classDef store fill:#1d3b53,stroke:#4aa3df,color:#dff
+    classDef ai fill:#2a4d3a,stroke:#5fd38d,color:#dfffe9
+    classDef ext fill:#5a3a1a,stroke:#e0a050,color:#ffe9cf
+    classDef edge fill:#3a2a55,stroke:#b07fe0,color:#f0e6ff
+    class PG,REDIS,QD store
+    class LITELLM,OLLAMA,VLLM,CLAUDE ai
+    class FEEDS,V1,SMTP,REMNUX,TRIAGE ext
+    class CADDY,NEXT edge

@@ -1,0 +1,124 @@
+##############################################################################
+# Auto-Close Rules — YAML-based pre-triage filter
+#
+# Purpose: Short-circuit known FP/benign patterns BEFORE or AFTER enrichment.
+#          Seeded from analyst-confirmed corpus. Extend as new patterns emerge.
+#
+# Rule evaluation:
+#   - ALL conditions in a rule must match for the rule to fire.
+#   - Rules are evaluated top-to-bottom; first match wins.
+#   - Conditions using enrichment fields (dst_asn_contains, dst_hostname_contains,
+#     vt_clean, abuseipdb_clean) require enrichment dict to be passed; if enrichment
+#     is not provided, those conditions are skipped (rule still fires if all other
+#     conditions match and no enrichment-only conditions remain).
+#
+# Condition keys:
+#   alert fields (always available):
+#     rule_name_contains  — case-insensitive substring match on rule_name
+#     dst_ip              — exact IPv4 match on destination IP
+#     src_ip              — exact IPv4 match on source IP
+#     application         — exact match on application (PAN-OS App-ID)
+#     url_category        — exact match on PAN URLCategory
+#     src_zone            — exact match on source zone
+#     dst_port            — exact int match on destination port
+#     customer            — exact match on customer name (required on all rules)
+#
+#   enrichment fields (available after Step 2A/2C):
+#     dst_asn_contains    — case-insensitive substring match on ISP/ASN string
+#     dst_hostname_contains — case-insensitive substring match on passive DNS hostname
+#     vt_clean            — true if VirusTotal reputation >= 0 and no detections
+#     abuseipdb_clean     — true if AbuseIPDB score == 0
+#
+# Verdict values: FP | benign
+# (TP auto-close is intentionally not supported — TPs must always be reviewed)
+##############################################################################
+
+version: 1
+
+rules:
+
+  # ─── CONTOSO ─────────────────────────────────────────────────────────────
+
+  - id: "contoso-xforce-miui-known-ip"
+    name: "X-Force Malware — Known MIUI endpoint 203.0.113.89"
+    customer: "CONTOSO"
+    conditions:
+      rule_name_contains: "X-Force as Malware"
+      dst_ip: "203.0.113.89"
+    verdict: "FP"
+    confidence: "HIGH"
+    reason: >
+      Known FP: 203.0.113.89 is Alibaba Cloud Singapore (AS45102) hosting Xiaomi MIUI
+      telemetry (tracking.intl.miui.com). Analyst confirmed FP twice (cases aaaa0001,
+      aaaa0002). AbuseIPDB 0%, VT clean. IBM X-Force Malware categorization of Alibaba
+      Cloud IP blocks is a recurring false positive source for this rule.
+
+  - id: "contoso-xforce-alibaba-cloud-asn"
+    name: "X-Force Malware — Alibaba Cloud AS45102 (broad)"
+    customer: "CONTOSO"
+    conditions:
+      rule_name_contains: "X-Force as Malware"
+      dst_asn_contains: "AS45102"
+      abuseipdb_clean: true
+    verdict: "FP"
+    confidence: "HIGH"
+    reason: >
+      Alibaba Cloud (AS45102) destination with clean AbuseIPDB score. IBM X-Force
+      categorically flags Alibaba Cloud IP blocks as Malware — confirmed recurring FP
+      pattern for CONTOSO. Validate passive DNS for MIUI/Xiaomi service confirmation.
+
+  - id: "contoso-xforce-digitalocean-asn"
+    name: "X-Force Malware — DigitalOcean AS14061 (server return traffic)"
+    customer: "CONTOSO"
+    conditions:
+      rule_name_contains: "X-Force as Malware"
+      dst_asn_contains: "AS14061"
+      abuseipdb_clean: true
+    verdict: "benign"
+    confidence: "MEDIUM"
+    reason: >
+      DigitalOcean (AS14061) with clean AbuseIPDB. IBM X-Force categorical FP for this
+      rule — confirmed benign case (aaaa0003) where traffic was Citrix NetScaler return
+      traffic, not outbound C2. Verify session direction before closing.
+
+  - id: "contoso-birthday-email-hr"
+    name: "Exchange Suspicious Subject — HR birthday emails from hr@contoso.com"
+    customer: "CONTOSO"
+    conditions:
+      rule_name_contains: "Suspicious Subject"
+      src_ip: "10.0.2.191"
+    verdict: "FP"
+    confidence: "HIGH"
+    reason: >
+      HR sender 10.0.2.191 (hr@contoso.com) sends recurring birthday celebration
+      emails to internal colleagues. Confirmed FP (case aaaa0004). Verify recipient is
+      internal before closing.
+
+  # ─── GLOBAL (customer: null = applies to all customers) ──────────────────
+
+  - id: "global-miui-tracking-hostname"
+    name: "Any rule — MIUI tracking.intl.miui.com hostname"
+    customer: null
+    conditions:
+      dst_hostname_contains: "miui.com"
+      abuseipdb_clean: true
+      vt_clean: true
+    verdict: "FP"
+    confidence: "HIGH"
+    reason: >
+      Destination resolves to a Xiaomi MIUI service (miui.com hostname). This is routine
+      mobile OS telemetry from a Xiaomi Android device on the corporate network.
+      AbuseIPDB clean + VT clean confirms no threat association.
+
+  - id: "global-windows-update-ssl"
+    name: "Any rule — Windows Update endpoints over SSL"
+    customer: null
+    conditions:
+      dst_hostname_contains: "windowsupdate.com"
+      dst_port: 443
+      abuseipdb_clean: true
+    verdict: "benign"
+    confidence: "HIGH"
+    reason: >
+      Traffic to windowsupdate.com:443 is routine Windows Update telemetry.
+      No threat association expected.

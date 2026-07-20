@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Theme: Dark (default) ────────────────────────────────────────────────
+   R G B channels — space-separated for Tailwind's / opacity modifier.
+   #0B1631 = 11 22 49, etc.
+────────────────────────────────────────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --c-base:     11 22 49;
+  --c-surface:  14 26 58;
+  --c-surface2: 19 35 76;
+  --c-line:     30 48 97;
+  --c-accent:   0 229 255;
+  --c-accent2:  123 97 255;
+  --c-positive: 0 224 143;
+  --c-warning:  244 161 44;
+  --c-danger:   255 75 110;
+  --c-muted:    166 176 207;
+  --c-text:     230 236 255;
+  --c-hex-dot:  rgba(0,229,255,0.06);
+  /* panel gradient */
+  --panel-grad: linear-gradient(180deg, rgba(19,35,76,.55) 0%, rgba(11,22,49,.85) 100%);
+  /* recharts tooltip */
+  --chart-bg:   #0E1A3A;
+  --chart-bdr:  #1E3061;
+}
+
+/* ── Theme: Darker / Neon Cyber ────────────────────────────────────────── */
+[data-theme="darker"] {
+  --c-base:     6 12 26;
+  --c-surface:  9 17 40;
+  --c-surface2: 14 24 50;
+  --c-line:     24 44 86;
+  --c-accent:   0 245 255;
+  --c-accent2:  139 111 255;
+  --c-positive: 0 255 157;
+  --c-warning:  255 153 0;
+  --c-danger:   255 45 85;
+  --c-muted:    120 138 175;
+  --c-text:     208 220 255;
+  --c-hex-dot:  rgba(0,245,255,0.08);
+  --panel-grad: linear-gradient(180deg, rgba(14,24,50,.70) 0%, rgba(6,12,26,.92) 100%);
+  --chart-bg:   #09112A;
+  --chart-bdr:  #182C58;
+}
+
+/* ── Theme: Light / White-Blue ─────────────────────────────────────────── */
+[data-theme="light"] {
+  --c-base:     240 244 255;
+  --c-surface:  255 255 255;
+  --c-surface2: 228 236 255;
+  --c-line:     189 202 238;
+  --c-accent:   0 104 204;
+  --c-accent2:  91 67 200;
+  --c-positive: 0 137 90;
+  --c-warning:  184 112 10;
+  --c-danger:   212 36 60;
+  --c-muted:    72 90 128;
+  --c-text:     11 24 48;
+  --c-hex-dot:  rgba(0,104,204,0.05);
+  --panel-grad: linear-gradient(180deg, rgba(255,255,255,.80) 0%, rgba(240,244,255,.95) 100%);
+  --chart-bg:   #FFFFFF;
+  --chart-bdr:  #BDCAEE;
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────── */
+html, body { height: 100%; }
+
+body {
+  background-color: rgb(var(--c-base));
+  color: rgb(var(--c-text));
+  background-image: radial-gradient(circle at 1px 1px, var(--c-hex-dot) 1px, transparent 0);
+  background-size: 18px 18px;
+  font-family: theme("fontFamily.sans");
+  transition: background-color 0.2s, color 0.2s;
+}
+
+/* ── Panels ─────────────────────────────────────────────────────────────── */
+.panel {
+  position: relative;
+  background: var(--panel-grad);
+  border: 1px solid rgb(var(--c-line));
+  border-radius: .75rem;
+  transition: background 0.2s, border-color 0.2s;
+}
+.panel::before,
+.panel::after {
+  content: "";
+  position: absolute;
+  width: 18px; height: 18px;
+  border: 2px solid rgb(var(--c-accent));
+}
+.panel::before { top: -1px; left: -1px;  border-right: 0; border-bottom: 0; border-top-left-radius: .75rem; }
+.panel::after  { bottom: -1px; right: -1px; border-left: 0; border-top: 0;   border-bottom-right-radius: .75rem; }
+
+/* ── Stat figures ───────────────────────────────────────────────────────── */
+.stat-figure {
+  font-family: theme("fontFamily.mono");
+  font-weight: 700;
+  letter-spacing: -.02em;
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  line-height: 1;
+}
+
+/* ── Pills ──────────────────────────────────────────────────────────────── */
+.pill {
+  @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold uppercase tracking-wider;
+}
+.pill-critical { background: rgb(var(--c-danger)   / 0.12); color: rgb(var(--c-danger));   border: 1px solid rgb(var(--c-danger)   / 0.4); }
+.pill-high     { background: rgb(var(--c-warning)  / 0.12); color: rgb(var(--c-warning));  border: 1px solid rgb(var(--c-warning)  / 0.4); }
+.pill-medium   { background: rgb(var(--c-accent)   / 0.10); color: rgb(var(--c-accent));   border: 1px solid rgb(var(--c-accent)   / 0.4); }
+.pill-low      { background: rgb(var(--c-muted)    / 0.10); color: rgb(var(--c-muted));    border: 1px solid rgb(var(--c-muted)    / 0.4); }
+.pill-resolved { background: rgb(var(--c-positive) / 0.10); color: rgb(var(--c-positive)); border: 1px solid rgb(var(--c-positive) / 0.4); }
+
+/* ── react-grid-layout dark-theme overrides ─────────────────────────────
+ * The library ships light-theme CSS by default — these rules tint the
+ * placeholder + resize handle to fit the cyber theme. Only kick in when
+ * the parent layout has the `editing` class so non-edit-mode is unaffected.
+ */
+.react-grid-item.react-grid-placeholder {
+  background: rgb(var(--c-accent) / 0.15) !important;
+  border: 1px dashed rgb(var(--c-accent) / 0.6);
+  border-radius: 0.5rem;
+  opacity: 0.6;
+}
+.react-grid-item > .react-resizable-handle {
+  background-image: none;
+  width: 14px;
+  height: 14px;
+  bottom: 4px;
+  right: 4px;
+}
+.layout.editing .react-grid-item > .react-resizable-handle::after {
+  content: "";
+  position: absolute;
+  bottom: 2px; right: 2px;
+  width: 8px; height: 8px;
+  border-right: 2px solid rgb(var(--c-accent));
+  border-bottom: 2px solid rgb(var(--c-accent));
+}
+.layout.editing .react-grid-item {
+  cursor: move;
+}

@@ -1,0 +1,15 @@
+# Seneca Cybersecurity LLM — Ollama Modelfile
+# Base: Llama 3.1 8B fine-tuned on incident response, threat hunting, malware analysis
+FROM hf.co/AlicanKiraz0/Seneca-Cybersecurity-LLM-Q4_K_M-GGUF
+
+# Context window — 8192 is safe for 18GB; can go up to 32768 if needed
+PARAMETER num_ctx 8192
+
+# Let the pipeline control temperature per-call (default low for structured JSON)
+PARAMETER temperature 0.2
+
+# Output-token ceiling for the local/fast tier. Seneca (8B) fills the
+# fast/local role; the deep tier has a higher default (settings.py
+# deep_max_tokens = 8192, and current deployments route deep to Claude),
+# so 4096 is a comfortable ceiling for this local model.
+PARAMETER num_predict 4096
