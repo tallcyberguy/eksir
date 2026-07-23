@@ -423,7 +423,9 @@ async def _create_pull_incident(
             title="(unparsed)",
             status=CaseStatus.RECEIVED,
             ingest_source=IngestSource.PULL,
-            customer=row.customer,
+            # Backstop for legacy sources saved before customer was required: attribute to
+            # the creds identifier so the incident still resolves the right tenant's creds.
+            customer=row.customer or (row.identifier if row.identifier != "default" else None),
             raw_payload={
                 "text": alert.get("raw_text", ""),
                 "source_hint": alert.get("source_hint"),

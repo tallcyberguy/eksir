@@ -236,10 +236,17 @@ async def create_source(
     if existing is not None:
         raise HTTPException(409, "a source for this provider + identifier already exists")
 
+    # A pull source MUST bind a tenant so every pulled incident is attributed (drives
+    # per-tenant cred resolution + RAG scoping). Default to the creds identifier when the
+    # admin leaves it blank, so ingest-time and gate-time creds resolve on the same key.
+    customer = body.customer or (body.identifier if body.identifier != "default" else None)
+    if not customer:
+        raise HTTPException(400, "customer (tenant) is required for a pull source")
+
     row = IngestSourceConfig(
         provider=body.provider,
         identifier=body.identifier,
-        customer=body.customer,
+        customer=customer,
         interval_seconds=body.interval_seconds,
         min_severity=(body.min_severity.lower() if body.min_severity else None),
         max_items=body.max_items,
@@ -278,6 +285,10 @@ async def update_source(
     fields = body.model_dump(exclude_unset=True)
     if "min_severity" in fields and fields["min_severity"]:
         fields["min_severity"] = fields["min_severity"].lower()
+    # A named source must keep its tenant; refuse to clear it (would mint NULL-customer
+    # incidents that fall back to global creds and pollute cross-tenant RAG scoping).
+    if "customer" in fields and not fields["customer"]:
+        raise HTTPException(400, "customer (tenant) cannot be cleared on a pull source")
     for key, value in fields.items():
         setattr(row, key, value)
     await audit.log(
