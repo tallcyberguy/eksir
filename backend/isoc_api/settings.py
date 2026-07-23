@@ -117,38 +117,15 @@ class Settings(BaseSettings):
     # enabled=true and credentials in the Integration store before it polls.
     pull_ingest_enabled: bool = False
 
-    # ── Email ingest (Phase 2) ───────────────────────────────────────────
-    # Master switch for the worker mailbox poll cron (Graph, below).
-    email_ingest_enabled: bool = False
-    email_ingest_imap_host: str | None = None
-    email_ingest_imap_user: str | None = None
-    email_ingest_imap_password: SecretStr | None = None
-    email_ingest_poll_interval_seconds: int = 60
-    # Single-tenant FALLBACK only: customer tag stamped on email-ingested
-    # incidents when no company map (below) is configured. Drives V1 credential
-    # routing + multi-tenant scoping.
-    email_ingest_default_customer: str | None = None
-    # MSSP multi-customer intake: JSON object mapping the V1 email company/org
-    # name -> isoc customer key, e.g.
-    #   EMAIL_COMPANY_MAP='{"Acme GmbH": "acme", "Globex Ltd": "globex"}'
-    # When set, attribution is STRICT: a company with no entry -> customer=None
-    # (incident is still created, but UNATTRIBUTED for manual assignment) — never
-    # the default, so one client's alert can't be mis-tagged as another's.
-    email_company_map: str | None = None
-
-    # ── Microsoft Graph mailbox ingest (app-only client-credentials poll) ─
-    # Outbound-only: the worker polls a shared mailbox via Graph (no public
-    # endpoint). Activate with email_ingest_enabled=true once these are set.
-    #   tenant/client/secret → the Entra app registration
-    #   mailbox              → UPN of the mailbox to read, e.g. soc@acme.example.com
+    # ── Microsoft Graph mail (outbound send, app-only client-credentials) ─
+    # Used by the customer-notification mailer when email_send_via="graph".
+    # The old inbound mailbox-ingest poller was retired in favour of connectors.
+    #   tenant/client/secret -> the Entra app registration (Mail.Send)
+    #   mailbox              -> UPN the mail is sent as (also the default sender)
     graph_tenant_id: str | None = None
     graph_client_id: str | None = None
     graph_client_secret: SecretStr | None = None
     graph_mailbox: str | None = None
-    # App has Mail.ReadWrite → mark each message read after ingest so the
-    # isRead filter excludes it next poll. Set false for a Mail.Read-only app
-    # (DB de-dupe still prevents reprocessing).
-    graph_mark_read: bool = True
 
     # ── Outbound customer mail backend ───────────────────────────────────
     # "smtp" (stdlib smtplib; needs SMTP AUTH) or "graph" (app-only Mail.Send,

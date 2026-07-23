@@ -28,7 +28,7 @@ class VisionOneIngestAdapter:
     provider = _PROVIDER
 
     async def fetch(self, *, creds: Any, cursor: dict[str, Any], max_items: int) -> FetchResult:
-        # Cold start = ~now (no backfill), matching mailbox_poll's "only new".
+        # Cold start = ~now (no backfill): the first poll takes only new alerts.
         start = cursor.get("last_poll_at") or _iso(
             datetime.now(timezone.utc) - timedelta(minutes=1)
         )
