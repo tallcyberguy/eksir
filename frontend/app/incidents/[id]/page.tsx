@@ -19,7 +19,7 @@ import { LLMCallsPanel } from "@/components/incidents/LLMCallsPanel";
 import { IncidentForensicsPanel } from "@/components/incidents/IncidentForensicsPanel";
 import { HuntPanel } from "@/components/incidents/HuntPanel";
 import { AttackPathPanel } from "@/components/incidents/AttackPathPanel";
-import { severityPill, statusPill, verdictPill } from "@/lib/utils";
+import { defang, severityPill, statusPill, verdictPill } from "@/lib/utils";
 import type { IncidentEntityLink, ClusterSummary } from "@/lib/api";
 import { Pencil, Check, X, FileText, UserPlus, UserCheck } from "lucide-react";
 
@@ -446,7 +446,7 @@ export default function IncidentDetail() {
               {iocs.map((r:any)=>(
                 <tr key={r.id} className="border-t border-line/60">
                   <td className="py-2 pr-3 text-muted">{r.ioc_type}</td>
-                  <td className="py-2 pr-3 font-mono">{r.value}</td>
+                  <td className="py-2 pr-3 font-mono">{defang(r.value)}</td>
                   <td className="py-2 pr-3 text-muted">{r.tenant || "—"}</td>
                   <td className="py-2">
                     <div className="flex items-center gap-1.5">

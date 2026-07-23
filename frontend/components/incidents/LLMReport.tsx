@@ -3,7 +3,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ShieldX, ShieldAlert, ShieldCheck, HelpCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, defang } from "@/lib/utils";
 
 /**
  * Parse + render an LLM analyst report.
@@ -34,7 +34,18 @@ export function LLMReport({ markdown }: { markdown: string }) {
       )}
 
       <article className="prose prose-cyber prose-sm max-w-none">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            // Neutralize autolinked IOCs: render inert, defanged text instead of a live
+            // link so an analyst can't click a live malicious URL straight from the report.
+            a: ({ children }) => (
+              <span className="font-mono break-all">{defang(String(children))}</span>
+            ),
+          }}
+        >
+          {body}
+        </ReactMarkdown>
       </article>
     </div>
   );
