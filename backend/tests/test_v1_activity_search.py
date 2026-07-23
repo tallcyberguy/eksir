@@ -176,7 +176,7 @@ async def test_run_hunt_persists_evidence_and_count(monkeypatch):
 
     # complete_with_tools: simulate the model invoking the search once (fills the
     # collector), then returning a HuntResult.
-    async def _cwt(*, system, user, tools, dispatch, model=None, gated=True):
+    async def _cwt(*, system, user, tools, dispatch, model=None, gated=True, on_tool_call=None):
         await dispatch["get_endpoint_activity"]({"query": "endpointHostName:H2"})
         return SimpleNamespace(
             status="ok",

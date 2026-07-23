@@ -190,3 +190,69 @@ async def test_complete_with_tools_executes_tool_call(monkeypatch):
     assert out.status == "ok"
     assert out.input_tokens == 30  # 10 + 20 summed
     assert out.output_tokens == 13  # 5 + 8 summed
+
+
+def _one_tool_then_final(name="lookup_ioc_history", args='{"indicator": "9.9.9.9"}'):
+    return [_resp(_msg(tool_calls=[_tool_call("tc1", name, args)])), _resp(_msg(content="done"))]
+
+
+def _fake_client(responses):
+    async def fake_create(**kwargs):
+        return responses.pop(0)
+
+    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create)))
+
+
+async def test_complete_with_tools_invokes_on_tool_call(monkeypatch):
+    """on_tool_call fires once per dispatched tool with (name, args, result), so the
+    pipeline can surface each API call + its parameters on the timeline."""
+    monkeypatch.setattr(llm_client.settings, "isoc_enable_llm_tools", True)
+    client = _fake_client(_one_tool_then_final())
+
+    async def fake_resolve(model, max_tokens, temperature):
+        return client, "m", 4096, 0.2
+
+    monkeypatch.setattr(llm_client, "_resolve_call", fake_resolve)
+
+    seen: list[tuple] = []
+
+    async def on_tool_call(name, args, result):
+        seen.append((name, args, result))
+
+    async def fake_tool(args):
+        return {"seen": 1}
+
+    await llm_client.complete_with_tools(
+        system="s",
+        user="u",
+        tools=[{"type": "function", "function": {"name": "lookup_ioc_history"}}],
+        dispatch={"lookup_ioc_history": fake_tool},
+        on_tool_call=on_tool_call,
+    )
+
+    assert seen == [("lookup_ioc_history", {"indicator": "9.9.9.9"}, {"seen": 1})]
+
+
+async def test_on_tool_call_failure_does_not_break_synthesis(monkeypatch):
+    monkeypatch.setattr(llm_client.settings, "isoc_enable_llm_tools", True)
+    client = _fake_client(_one_tool_then_final())
+
+    async def fake_resolve(model, max_tokens, temperature):
+        return client, "m", 4096, 0.2
+
+    monkeypatch.setattr(llm_client, "_resolve_call", fake_resolve)
+
+    async def boom(name, args, result):
+        raise RuntimeError("timeline down")
+
+    async def fake_tool(args):
+        return {}
+
+    out = await llm_client.complete_with_tools(
+        system="s",
+        user="u",
+        tools=[{"type": "function", "function": {"name": "lookup_ioc_history"}}],
+        dispatch={"lookup_ioc_history": fake_tool},
+        on_tool_call=boom,
+    )
+    assert out.status == "ok" and out.text == "done"  # emit failure swallowed

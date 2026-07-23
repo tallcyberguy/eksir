@@ -11,7 +11,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,6 +91,32 @@ async def _emit(
         )
     )
     await session.flush()
+
+
+def _make_tool_emitter(
+    session: AsyncSession, incident: Incident, step: str
+) -> Callable[[str, dict, Any], Awaitable[None]]:
+    """Build an ``on_tool_call`` hook for ``complete_with_tools`` that logs each tool
+    invocation (name + args + a truncated result) to the incident timeline, so an
+    analyst can see which API ran with which parameters. Best-effort."""
+    import json
+
+    async def _emit_tool(name: str, args: dict, result: Any) -> None:
+        arg_str = ", ".join(f"{k}={str(v)[:60]}" for k, v in (args or {}).items())
+        await _emit(
+            session,
+            incident,
+            "tool_call",
+            display=f"{name}({arg_str})"[:200],
+            payload={
+                "tool": name,
+                "args": args,
+                "result_preview": json.dumps(result, default=str)[:600],
+            },
+            step=step,
+        )
+
+    return _emit_tool
 
 
 async def run_pipeline(session: AsyncSession, incident_id: uuid.UUID) -> None:
@@ -1225,6 +1251,7 @@ async def _step_synthesis(
         max_tokens=settings.deep_max_tokens,  # report + verdict block must fit (was 4096 -> truncated)
         tools=tools,
         dispatch=dispatch,
+        on_tool_call=_make_tool_emitter(session, incident, "l2"),
     )
     session.add(
         _llm_call_row(

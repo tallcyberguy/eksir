@@ -28,6 +28,7 @@ from .orchestrator import (
     _emit,
     _hunt_iocs,
     _llm_call_row,
+    _make_tool_emitter,
     _persona_stage_done,
     _persona_stage_start,
 )
@@ -386,6 +387,7 @@ async def _run_hunt(
             dispatch=dispatch,
             model=DEEP,
             gated=False,
+            on_tool_call=_make_tool_emitter(session, incident, "hunt"),
         )
     else:
         res = await complete(system=prompts.HUNT_SYSTEM, user=user, model=DEEP)
@@ -578,6 +580,7 @@ async def manager_turn(session: AsyncSession, incident: Incident, message: str) 
         model=DEEP,
         gated=False,
         max_rounds=5,
+        on_tool_call=_make_tool_emitter(session, incident, "manager"),
     )
     session.add(_llm_call_row(incident_id=incident.id, purpose="manager_chat", result=result))
     reply = result.text if result.status == "ok" else f"(manager unavailable: {result.error})"
