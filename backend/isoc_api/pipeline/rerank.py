@@ -21,17 +21,21 @@ _W_HUMAN_VERIFIED = 0.05
 _W_RECENT = 0.02  # within the last 90 days
 _W_REASON_LONG = 0.02  # verdict_reason ≥ 100 chars
 _W_TP_PENALTY = -0.01  # TP cases re-investigate by design; slight demotion
+_W_CROSS_CUSTOMER = -0.15  # a different tenant's prior is weak support for this one
 
 
-def rerank(similar: list[dict]) -> list[dict]:
+def rerank(similar: list[dict], customer: str | None = None) -> list[dict]:
     """Return a new list, re-sorted descending by adjusted score.
 
-    Does not mutate input dicts; adds `adjusted_score` for transparency.
+    Does not mutate input dicts; adds `adjusted_score` for transparency. Priors from a
+    DIFFERENT customer are penalised so a cross-tenant match can't top the list the LLM
+    reads (INC-001140 surfaced EMINEVIM priors for a csvisor alert).
     """
     if not similar:
         return []
 
     now = datetime.now(timezone.utc)
+    q_cust = _canon(customer)
     out: list[dict] = []
     for s in similar:
         # Base on the TRUE cosine when available (honest [0,1] signal); fall
@@ -50,6 +54,10 @@ def rerank(similar: list[dict]) -> list[dict]:
             bonus += _W_REASON_LONG
         if (s.get("verdict") or "").upper() == "TP":
             bonus += _W_TP_PENALTY
+        if q_cust is not None:
+            m_cust = _canon(s.get("customer"))
+            if m_cust is not None and m_cust != q_cust:
+                bonus += _W_CROSS_CUSTOMER
 
         # adjusted_score is an ORDERING signal only — never displayed as a %.
         # Clamp to [0, 1] so a verified/recent prior can't exceed 100%.
@@ -71,3 +79,10 @@ def _is_recent(ts: str | None, now: datetime, days: int = 90) -> bool:
         return (now - dt).days <= days
     except (ValueError, TypeError):
         return False
+
+
+def _canon(c: str | None) -> str | None:
+    """Canonical customer id (trim, collapse whitespace, upper) — mirrors store_adapter."""
+    if not c or not isinstance(c, str):
+        return None
+    return " ".join(c.split()).upper() or None

@@ -402,8 +402,8 @@ async def _step_dedup(session: AsyncSession, incident: Incident) -> None:
     # Heuristic re-rank: bias toward human-verified, recent, well-reasoned
     # prior cases. Original Qdrant score preserved in `score`; new field
     # `adjusted_score` drives the order.
-    sim_ranked = rerank.rerank(sim or [])
-    nway = _compute_n_way(sim_ranked, min_agreement=N_WAY_POPULATE_MIN)
+    sim_ranked = rerank.rerank(sim or [], customer)
+    nway = _compute_n_way(sim_ranked, customer, min_agreement=N_WAY_POPULATE_MIN)
 
     enrichment = incident.enrichment or {}
     enrichment.update(
@@ -431,7 +431,9 @@ async def _step_dedup(session: AsyncSession, incident: Incident) -> None:
         )
 
 
-def _compute_n_way(matches: list[dict], min_agreement: int = N_WAY_POPULATE_MIN) -> dict | None:
+def _compute_n_way(
+    matches: list[dict], customer: str | None, min_agreement: int = N_WAY_POPULATE_MIN
+) -> dict | None:
     """Tally verdicts across `matches` and return the majority if ≥ min_agreement.
 
     Operates on whatever survived the min_score filter — so 5 matches all
@@ -446,7 +448,15 @@ def _compute_n_way(matches: list[dict], min_agreement: int = N_WAY_POPULATE_MIN)
     if not matches:
         return None
 
-    verified = [m for m in matches if m.get("human_verified")]
+    # Only count analyst-verified priors from the SAME tenant. A different customer's
+    # FP must never form a majority for this one (that produced the "3/7 EMINEVIM" noise
+    # on INC-001140), and a null-customer query matches only null-customer priors.
+    q_cust = store_adapter.canonical_customer(customer)
+    verified = [
+        m
+        for m in matches
+        if m.get("human_verified") and store_adapter.canonical_customer(m.get("customer")) == q_cust
+    ]
     if len(verified) < min_agreement:
         return None
 
