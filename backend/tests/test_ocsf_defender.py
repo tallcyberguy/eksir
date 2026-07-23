@@ -68,7 +68,10 @@ EMAIL_ALERT = {
         },
         {
             "@odata.type": "#microsoft.graph.security.userEvidence",
-            "userAccount": {"accountName": "victim", "userPrincipalName": "victim@acme.example.com"},
+            "userAccount": {
+                "accountName": "victim",
+                "userPrincipalName": "victim@acme.example.com",
+            },
         },
     ],
 }
@@ -119,6 +122,41 @@ def test_email_alert_extracts_message_evidence():
     assert n["mitre_technique"] == "T1566.002"
     assert n["source_product"] == "microsoft_defender"
     assert n["severity_label"]  # finalize derived a label from severity=3
+
+
+def test_mdo_url_and_delivery_recovered_without_urlevidence():
+    """INC-001140 shape: the phishing URL + delivery status live ONLY in
+    analyzedMessageEvidence (no urlEvidence entity). Recover them so the URL is
+    triaged/embedded and the disposition (threats / delivery / incident id) is visible."""
+    alert = {
+        "id": "mdo-1",
+        "title": "Email messages removed after delivery",
+        "severity": "informational",
+        "categories": ["InitialAccess"],
+        "incidentId": "1808",
+        "createdDateTime": "2026-07-23T06:39:57Z",
+        "evidence": [
+            {
+                "@odata.type": "#microsoft.graph.security.analyzedMessageEvidence",
+                "recipientEmailAddress": "helpdesk@csvisor.de",
+                "subject": "Slimming Coffee",
+                "senderIp": "62.173.154.171",
+                "p2Sender": {
+                    "emailAddress": "ez@declass.business",
+                    "domainName": "declass.business",
+                },
+                "urls": ["https://d.espanodeal.lat/target19/"],
+                "threats": ["ZapPhish"],
+                "deliveryAction": "deliveredAsSpam",
+                "deliveryLocation": "quarantine",
+            },
+        ],
+    }
+    n = _parse(alert)
+    assert n["url"] == "https://d.espanodeal.lat/target19/"  # was dropped before the fix
+    assert n["action"] == "deliveredAsSpam"
+    desc = n["event_description"] or ""
+    assert "ZapPhish" in desc and "quarantine" in desc and "1808" in desc
 
 
 def test_email_alert_yields_ocsf_email_user_entities():

@@ -153,6 +153,8 @@ def parse(raw: Any, customer: str | None = None) -> Any:
     # Walk the polymorphic evidence array; first occurrence of each field wins.
     process_cmds: list[str] = []
     mailbox_addr: str | None = None
+    mdo_threats: list[str] | None = None  # vendor verdict tags, e.g. ["ZapPhish"]
+    mdo_delivery: str | None = None  # where the message landed (quarantine / inbox)
     for ev in evidence:
         if not isinstance(ev, dict):
             continue
@@ -187,6 +189,22 @@ def parse(raw: Any, customer: str | None = None) -> Any:
                 a.subject = _clean(ev.get("subject"))
             if not a.src_ip:
                 a.src_ip = _clean(ev.get("senderIp"))
+            # MDO phishing carries the URL in `urls[]` on this evidence (there is no
+            # urlEvidence entity for email), so recover it into the first-class url slot.
+            # It then flows into ioc_extract, the RAG embed_text, and the OCSF url
+            # observable for free.
+            if not a.url:
+                urls = ev.get("urls")
+                if isinstance(urls, list):
+                    a.url = next(
+                        (u.strip() for u in urls if isinstance(u, str) and u.strip()), None
+                    )
+            if not a.action:
+                a.action = _clean(ev.get("deliveryAction"))  # deliveredAsSpam / Delivered
+            if mdo_threats is None and isinstance(ev.get("threats"), list):
+                mdo_threats = [str(t) for t in ev["threats"] if t] or None
+            if mdo_delivery is None:
+                mdo_delivery = _clean(ev.get("deliveryLocation"))  # quarantine / inbox
         elif "mailboxevidence" in etype and mailbox_addr is None:
             mailbox_addr = _clean(ev.get("primaryAddress")) or _clean(ev.get("upn"))
 
@@ -196,9 +214,20 @@ def parse(raw: Any, customer: str | None = None) -> Any:
     if not a.username and mailbox_addr:
         a.username = mailbox_addr
 
-    if process_cmds:
+    # Fold high-signal context with no dedicated slot into the description: the vendor
+    # threat verdict, where the mail landed, the correlating incident id, and the first
+    # few process command lines.
+    ctx: list[str] = []
+    if mdo_threats:
+        ctx.append("threats: " + ", ".join(mdo_threats))
+    if mdo_delivery:
+        ctx.append(f"delivery: {mdo_delivery}")
+    inc_id = data.get("incidentId")
+    if inc_id is not None and str(inc_id).strip():
+        ctx.append(f"defender incident: {str(inc_id).strip()}")
+    ctx += [f"cmdline: {c}" for c in process_cmds[:3]]
+    if ctx:
         base = (a.event_description or "").rstrip()
-        cmds = "\n".join(f"cmdline: {c}" for c in process_cmds[:3])
-        a.event_description = (base + "\n" + cmds).strip()
+        a.event_description = (base + "\n" + "\n".join(ctx)).strip()
 
     return a.finalize()
