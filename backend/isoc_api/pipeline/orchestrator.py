@@ -629,9 +629,9 @@ async def _step_enrich(session: AsyncSession, incident: Incident) -> None:
         settings.v1_autofetch_enabled
         and (incident.normalized or {}).get("source_product") == "visionone"
     ):
-        _wb_id, _v1_region = _v1_alert_ref(incident)
+        _wb_id, _ = _v1_alert_ref(incident)
         if _wb_id:
-            v1_task = _fetch_v1(incident, _wb_id, _v1_region)
+            v1_task = _fetch_v1(incident, _wb_id)
 
     # return_exceptions=True so a single failing branch can't nuke its siblings.
     triage_results, ip_enrichments, kb_hits, v1_result = await asyncio.gather(
@@ -1496,7 +1496,7 @@ def _v1_alert_ref(incident: Incident) -> tuple[str | None, str | None]:
     return wb, region
 
 
-async def _fetch_v1(incident: Incident, wb_id: str, region_hint: str | None) -> dict:
+async def _fetch_v1(incident: Incident, wb_id: str) -> dict:
     """Read-only V1 enrichment: workbench detail (always) + OAT (optional).
 
     Returns a capped dict for enrichment['v1']. Raises only on a total workbench
@@ -1504,7 +1504,7 @@ async def _fetch_v1(incident: Incident, wb_id: str, region_hint: str | None) -> 
     """
     from ..adapters import integration_store, v1_adapter
 
-    creds = await integration_store.get_creds_v1(incident.customer, region_hint=region_hint)
+    creds = await integration_store.get_creds("vision_one", incident.customer)
     if creds is None:
         raise RuntimeError("Vision One not configured")
     region = creds.region

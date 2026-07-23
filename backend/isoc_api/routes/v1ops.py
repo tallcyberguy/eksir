@@ -53,8 +53,8 @@ async def _resolve(customer: str | None):
     """Resolve the picked customer/tenant → Vision One creds (region + key).
 
     Fail closed (503) when nothing is configured. ``customer`` None/'default' resolves
-    the global env key (when not in strict-tenant mode), preserving single-tenant setups."""
-    creds = await integration_store.get_creds_v1(customer)
+    the global 'default' Integration row (when not in strict-tenant mode)."""
+    creds = await integration_store.get_creds("vision_one", customer)
     if creds is None:
         raise HTTPException(503, f"No Vision One credentials for tenant '{customer or 'default'}'")
     return creds

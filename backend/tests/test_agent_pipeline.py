@@ -235,10 +235,10 @@ async def test_run_proposed_actions_executes_only_checked(monkeypatch):
         calls.append(kwargs)
         return {"ok": True}
 
-    async def fake_get_creds_v1(*_a, **_k):
+    async def fake_get_creds(*_a, **_k):
         return SimpleNamespace(api_key="k", region="eu", source="integration")
 
-    monkeypatch.setattr(cases.integration_store, "get_creds_v1", fake_get_creds_v1)
+    monkeypatch.setattr(cases.integration_store, "get_creds", fake_get_creds)
     monkeypatch.setattr(cases.v1_adapter, "add_to_blocklist", fake_blocklist)
 
     enrichment = {
@@ -291,10 +291,10 @@ async def test_run_proposed_actions_skips_create_case(monkeypatch):
         calls.append(kwargs)
         return {"ok": True}
 
-    async def fake_get_creds_v1(*_a, **_k):
+    async def fake_get_creds(*_a, **_k):
         return SimpleNamespace(api_key="k", region="eu", source="integration")
 
-    monkeypatch.setattr(cases.integration_store, "get_creds_v1", fake_get_creds_v1)
+    monkeypatch.setattr(cases.integration_store, "get_creds", fake_get_creds)
     monkeypatch.setattr(cases.v1_adapter, "add_to_blocklist", fake_blocklist)
 
     enrichment = {
@@ -316,7 +316,7 @@ async def test_run_proposed_actions_records_failure(monkeypatch):
     async def no_creds(*_a, **_k):  # no V1 credentials configured for this customer
         return None
 
-    monkeypatch.setattr(cases.integration_store, "get_creds_v1", no_creds)
+    monkeypatch.setattr(cases.integration_store, "get_creds", no_creds)
     enrichment = {
         "proposed_actions": [
             {
@@ -346,7 +346,7 @@ async def test_run_proposed_actions_207_item_failure_marks_failed(monkeypatch):
     async def _collect(**_k):
         return [{"status": 400, "body": {"error": {"message": "path not found"}}}]
 
-    monkeypatch.setattr(cases.integration_store, "get_creds_v1", _creds)
+    monkeypatch.setattr(cases.integration_store, "get_creds", _creds)
     monkeypatch.setattr(cases.v1_adapter, "collect_file", _collect)
     enrichment = {
         "proposed_actions": [
@@ -380,7 +380,7 @@ async def test_run_proposed_actions_captures_task_id(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(cases.integration_store, "get_creds_v1", _creds)
+    monkeypatch.setattr(cases.integration_store, "get_creds", _creds)
     monkeypatch.setattr(cases.v1_adapter, "collect_file", _collect)
     enrichment = {
         "proposed_actions": [

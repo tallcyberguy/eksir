@@ -332,9 +332,9 @@ async def mirror_verdict_to_v1(incident: Any, verdict: Any) -> None:
     if v1_customers() and not is_v1_customer(customer):
         return
     try:
-        from .integration_store import get_creds_v1
+        from .integration_store import get_creds
 
-        creds = await get_creds_v1(customer, region_hint=norm.get("v1_region"))
+        creds = await get_creds("vision_one", customer)
         if creds is None:
             return
         await patch_alert_status(

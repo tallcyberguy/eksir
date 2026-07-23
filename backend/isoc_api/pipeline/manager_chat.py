@@ -295,9 +295,7 @@ async def _hunt_activity_tool(incident: Incident, collector: list | None = None)
     if not settings.v1_activity_search_enabled:
         return None
     try:
-        creds = await integration_store.get_creds_v1(
-            incident.customer, region_hint=(incident.normalized or {}).get("v1_region")
-        )
+        creds = await integration_store.get_creds("vision_one", incident.customer)
     except Exception:
         creds = None
     if creds is None:

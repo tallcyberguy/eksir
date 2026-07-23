@@ -337,12 +337,8 @@ async def test_run_proposed_actions_defender_disable_user(monkeypatch):
             oauth_tenant_id="t", client_id="c", client_secret=_SECRET, source="integration"
         )
 
-    async def _v1_none(customer, region_hint=None):
-        return None
-
     monkeypatch.setattr(cases.defender_adapter, "set_user_enabled", _set_enabled)
     monkeypatch.setattr(cases.integration_store, "get_creds", _def_creds)
-    monkeypatch.setattr(cases.integration_store, "get_creds_v1", _v1_none)
 
     enrichment = {
         "proposed_actions": [
@@ -413,13 +409,9 @@ async def test_run_proposed_actions_defender_scan_and_blocklist(monkeypatch):
             oauth_tenant_id="t", client_id="c", client_secret=_SECRET, source="integration"
         )
 
-    async def _v1_none(customer, region_hint=None):
-        return None
-
     monkeypatch.setattr(cases.defender_adapter, "run_av_scan", _scan)
     monkeypatch.setattr(cases.defender_adapter, "add_indicator", _indicator)
     monkeypatch.setattr(cases.integration_store, "get_creds", _def_creds)
-    monkeypatch.setattr(cases.integration_store, "get_creds_v1", _v1_none)
 
     enrichment = {
         "proposed_actions": [
@@ -558,17 +550,16 @@ async def test_run_proposed_actions_routes_defender(monkeypatch):
         return {"id": "action-123"}
 
     async def _def_creds(provider, identifier=None):
-        assert provider == "microsoft_defender"
+        # The V1 creds are resolved up front but unused (this is a Defender-only
+        # action); only the Defender resolution must return a credential.
+        if provider != "microsoft_defender":
+            return None
         return SimpleNamespace(
             oauth_tenant_id="t", client_id="c", client_secret=_SECRET, source="integration"
         )
 
-    async def _v1_none(customer, region_hint=None):
-        return None
-
     monkeypatch.setattr(cases.defender_adapter, "isolate_machine", _fake_isolate)
     monkeypatch.setattr(cases.integration_store, "get_creds", _def_creds)
-    monkeypatch.setattr(cases.integration_store, "get_creds_v1", _v1_none)
 
     enrichment = {
         "proposed_actions": [

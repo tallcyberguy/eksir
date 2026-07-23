@@ -3,7 +3,7 @@
 Delegates `fetch` to the existing `adapters/ingest/vision_one.py` adapter and `test_connection` to
 `v1_adapter.search_endpoints` (a minimal read-only call). `health.py` now routes every live
 connector's test through `Connector.test_connection`, so this method is the V1 tester. Credentials
-+ region resolve through the V1-specific `integration_store.get_creds_v1` seam.
++ region resolve through the generic `integration_store.get_creds` seam.
 """
 
 from __future__ import annotations

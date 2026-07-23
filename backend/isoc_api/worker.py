@@ -384,11 +384,9 @@ async def pull_ingest(ctx) -> dict:
 async def _resolve_pull_creds(provider: str, identifier: str):
     """Resolve credentials for a pull source from the per-customer store.
 
-    Vision One folds region into its own creds; everything else uses the generic
-    resolver. Returns None when nothing is configured (source stays a no-op).
+    Every provider resolves through the same generic seam. Returns None when nothing
+    is configured (the source stays a no-op).
     """
-    if provider == "vision_one":
-        return await integration_store.get_creds_v1(identifier)
     return await integration_store.get_creds(provider, identifier)
 
 

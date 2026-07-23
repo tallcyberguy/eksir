@@ -187,10 +187,8 @@ def _validate_min_severity(min_severity: str | None) -> None:
 
 
 async def _creds_present(provider: str, identifier: str) -> bool:
-    """True if usable credentials resolve for (provider, identifier) — a saved
-    Connectors row or (Vision One) the env fallback. Mirrors the cron's lookup."""
-    if provider == "vision_one":
-        return await integration_store.get_creds_v1(identifier) is not None
+    """True if a usable Connectors credential row resolves for (provider, identifier).
+    Mirrors the cron's lookup."""
     return await integration_store.get_creds(provider, identifier) is not None
 
 

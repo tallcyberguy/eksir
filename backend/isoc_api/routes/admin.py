@@ -991,8 +991,7 @@ async def reset_llm_settings(
 
 # Providers whose per-customer/global credentials live in the `integrations`
 # table (Fernet-encrypted). EDR/XDR connectors + TI/recon feeds (F2 seam —
-# resolved via integration_store.get_creds). Vision One additionally has an
-# env-var fallback (get_creds_v1); the rest are DB-only.
+# resolved via integration_store.get_creds). All providers are DB-only.
 # Single source of truth: the connectors catalogue (3.11). Keeps the admin
 # provider allow-list in sync with the connector specs the UI renders.
 _INTEGRATION_PROVIDERS = _connector_registry.connector_keys()
