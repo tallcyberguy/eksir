@@ -48,7 +48,7 @@ repos:
 
   # ── Python lint (ruff, matches CI config) ──────────────────────────────
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+    rev: v0.15.21
     hooks:
       # Auto-fix import order + unused imports + style. Stages the fixed
       # version so the commit goes through clean.
