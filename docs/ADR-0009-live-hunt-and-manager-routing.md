@@ -5,8 +5,8 @@
 **Amended 2026-07-24** (competitor gap analysis, Amendment 1): D3 split by data locality, plus new
 decisions D7 to D9 (reputation reads, richer identity, out-of-band confirmation).
 **Amended again 2026-07-24** (autonomy pivot, Amendment 2): reputation/endpoint/identity move from
-model-choice L2 tools to deterministic pre-L2 enrichment; live hunt stays operator-gated (old PR-4
-dropped, D6 removed).
+model-choice L2 tools to deterministic pre-L2 enrichment; the hunt is fully operator-gated (the
+manager-owned hunt decision D5 / decide_hunt is dropped, D6 removed).
 **Amends:** ADR-0007 decision #2 ("Live-query execution point = **Gate-only**"). This ADR is the
 realization of ADR-0007's own *"Revisit when: gate-only proves too restrictive (analysts want
 auto-hunt with live queries) → promote read-only queries into the hunt persona behind a separate
@@ -79,8 +79,10 @@ changes). Build detail in [BUILD-PLAN-ADR-0009.md](BUILD-PLAN-ADR-0009.md).
 - **Latency/context:** the enrichment calls run concurrently (`asyncio.gather`), fail-soft (never
   block L2), and each slice stays compact so the briefing does not bloat.
 
-`decide_hunt` (the manager owns the hunt DECISION, D5) stays: it now recommends a hunt + focus to the
-operator from the pre-enriched signals; the operator executes the hunt live at the gate.
+**Hunt fully operator-gated (D5 reversed).** The manager does NOT own a hunt decision; `decide_hunt`
+is dropped. L2's `hunt_recommended` gates the existing query-building hunt persona (`should_hunt`,
+unchanged), and the operator runs the live hunt APIs at the gate via the conversational manager. The
+pre-enriched criticality/risk still inform L2's reasoning, just not an automated hunt gate.
 
 ## Context
 

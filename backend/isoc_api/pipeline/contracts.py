@@ -129,19 +129,6 @@ class HuntResult(BaseModel):
     reasoning: str = ""
 
 
-class HuntDecision(BaseModel):
-    """Manager-owned hunt-routing decision (ADR-0009 D5). The manager decides
-    WHETHER a hunt is warranted from L2 plus the pre-L2 Microsoft enrichment; the
-    operator runs the live hunt at the gate. `run` gates the query-building hunt
-    persona and surfaces the recommendation to the analyst. There is no `live`
-    field: live execution stays operator-triggered (ADR-0009 Amendment 2)."""
-
-    model_config = {"extra": "ignore"}
-    run: bool = False
-    focus: str | None = None  # carried from L2: lateral_movement | persistence | exfil | c2
-    reason: str = ""
-
-
 class TimelineEntry(BaseModel):
     model_config = {"extra": "ignore"}
     timestamp: str = ""

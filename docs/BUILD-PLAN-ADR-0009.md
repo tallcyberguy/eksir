@@ -1,4 +1,4 @@
-# Build plan, ADR-0009 (pre-gate enrichment, manager-owned hunt routing)
+# Build plan, ADR-0009 (pre-gate enrichment; hunt stays operator-gated)
 
 **Date:** 2026-07-24
 **Tracks:** [ADR-0009](ADR-0009-live-hunt-and-manager-routing.md) (see Amendment 1 = competitor gap
@@ -10,9 +10,10 @@ analysis; Amendment 2 = the autonomy pivot this plan implements).
 Reputation, endpoint detail, and identity are fetched **deterministically before the L2 call** and
 injected into the briefing, NOT exposed as model-choice L2 tools. Rationale: a tool per read means a
 second LLM round-trip each time the model asks; pre-enrichment is one richer prompt, more autonomous,
-and guarantees coverage. Live threat hunting stays **operator-triggered** at the gate. Two clean
-consequences: the old auto-live-hunt PR is dropped, and the D6 read-cache machinery is deleted (the
-manager reads pre-enriched signals directly).
+and guarantees coverage. Live threat hunting stays **operator-triggered** at the gate, and there is
+**no automated hunt-decision layer**: L2's `hunt_recommended` gates the existing query-building hunt
+persona (`should_hunt`, unchanged), and the operator runs the live hunt APIs at the gate. The old
+auto-live-hunt PR, the D6 read-cache machinery, and `decide_hunt` are all dropped.
 
 **The clean split:**
 
@@ -20,7 +21,7 @@ manager reads pre-enriched signals directly).
 |---|---|
 | Bounded point-lookups (file/hash/domain/IP reputation, endpoint detail by id/name, identity) | **Auto-enrich just before L2** (this plan) |
 | Open-ended hunt (advanced-hunting KQL, activity search) | **Operator-triggered** at the gate (`manager_chat._run_hunt`, unchanged) |
-| Hunt *decision* (is a hunt warranted?) | Manager recommends at the gate from the pre-enriched signals (PR-4) |
+| Whether a hunt runs at all | L2's `hunt_recommended` gates the query-building persona (`should_hunt`, unchanged); the operator runs the live hunt. No manager hunt-decision layer. |
 
 **Where it runs:** a new sub-step in `_step_synthesis` (and `synthesis_steps`) AFTER the L1
 short-circuit and BEFORE L2, so only escalated alerts hit the Microsoft/Graph APIs (throttling +
@@ -32,25 +33,23 @@ workbench auto-fetch pattern.
 ## Shape
 
 ```
-PR-1 pre-enrich scaffolding + reputation ─┬─► PR-2 endpoint detail ──┐
-                                          └─► PR-3 identity ─────────┴─► PR-4 decide_hunt ─► (operator runs hunt at gate)
-                                                                         └─► PR-6 confirmation (needs PR-3 manager)
-PR-5 L2 tool cleanup (after PR-1/2/3)
+PR-1 pre-enrich scaffolding + reputation ─┬─► PR-2 endpoint detail
+                                          └─► PR-3 identity ──► PR-5 confirmation (needs PR-3 manager)
+PR-4 L2 tool cleanup (after PR-1/2/3)
 ```
 
 **Highest-value-first:** PR-1 (reputation, near-zero new consent) + PR-3 (identity) close the
-high-severity competitor gaps. PR-2 feeds criticality into the hunt decision. PR-6 (confirmation) is
-the differentiator.
+high-severity competitor gaps. PR-5 (confirmation) is the differentiator.
 
 **Preserved invariants (every PR):**
 - Only the analyst's Approve in `routes/cases.py` writes a verdict or fires a response action. This
-  plan is read-only except PR-6, whose single outbound send is analyst-gated and whose reply is
+  plan is read-only except PR-5, whose single outbound send is analyst-gated and whose reply is
   evidence, never an auto-commit.
 - Pre-enrichment handlers are physically GET-only and never share a code path with any write adapter fn.
 - Every new capability is flag-gated and creds-gated; off equals byte-identical to today.
 
-**No new Alembic migration** (enrichment slices live in `enrichment` JSONB; `HuntDecision` in-memory;
-identity sign-in baseline reuses existing tables). Confirm per PR.
+**No new Alembic migration** (enrichment slices live in `enrichment` JSONB; identity sign-in baseline
+reuses existing tables). Confirm per PR.
 
 **After each PR:** `cd deploy && docker compose build backend worker && docker compose up -d backend
 worker`. Tests on the host: `cd backend && pytest -q` + `ruff check isoc_api`.
@@ -63,7 +62,7 @@ worker`. Tests on the host: `cd backend && pytest -q` + `ruff check isoc_api`.
 | `defender_tools_enabled` | off | (exists) | Defender creds/adapter (reused by pre-enrichment) |
 | `v1_activity_search_enabled` | off | (exists) | V1 operator-gate hunt |
 | `ms_autoenrich_enabled` | off | PR-1 | Master switch for the pre-L2 deterministic enrichment step |
-| `confirmation_workflow_enabled` | off | PR-6 | Gated out-of-band user/manager confirmation |
+| `confirmation_workflow_enabled` | off | PR-5 | Gated out-of-band user/manager confirmation |
 
 (The old `auto_hunt_live_enabled` / `auto_hunt_max_rounds` / `auto_hunt_timeout_s` and
 `entra_identity_enabled` flags are dropped: no auto-live-hunt, and identity is part of
@@ -105,7 +104,7 @@ a short-circuited alert (never reached).
 
 ## PR-2, endpoint-detail pre-enrichment
 
-**Goal:** the impacted host's criticality/exposure, pre-fetched for L2 AND the hunt decision.
+**Goal:** the impacted host's criticality/exposure, pre-fetched into the briefing for L2's reasoning.
 
 **Changes**
 - Defender: call the existing `get_machine(device_id)` (scope `Machine.Read.All`, held) from the
@@ -116,7 +115,7 @@ a short-circuited alert (never reached).
 - `briefing.py`: render an `ms_endpoint` section (risk/exposure/OS/last-seen/criticality).
 
 **Tests** `tests/test_prefetch_endpoint.py`: Defender `get_machine` mapped from device id; V1 endpoint
-detail from endpoint name (mock); criticality lands in `enrichment["ms"]["endpoint"]` for PR-4.
+detail from endpoint name (mock); criticality lands in `enrichment["ms"]["endpoint"]`.
 
 **Note:** if the V1 Endpoint Inventory API lacks a criticality field, document the reduced surface
 rather than fake it (same rule as the old V1-symmetry spike).
@@ -137,7 +136,7 @@ rather than fake it (same rule as the old V1-symmetry spike).
     `onPremisesSecurityIdentifier` is the Windows SID). Scope `User.Read.All` (held).
   - `...&$expand=manager($select=id,displayName,mail,userPrincipalName)` header
     `ConsistencyLevel: eventual` (app-only is unsupported on the bare `/manager` nav). Feeds
-    VIP/exec detection and PR-6.
+    VIP/exec detection and PR-5.
   - `GET /identityProtection/riskyUsers/{id}` (state, `IdentityRiskyUser.Read.All`, held) +
     `GET /identityProtection/riskDetections?$filter=userId eq '{id}'` (why risky;
     `IdentityRiskEvent.Read.All`, NEW consent).
@@ -161,30 +160,7 @@ tenant (profile + risky-user + manager need nothing new). Ship degrading gracefu
 
 ---
 
-## PR-4, `decide_hunt` + `HuntDecision` (manager owns the hunt decision)
-
-**Goal:** move the hunt decision off L2's boolean onto the manager (code), per ADR-0009 D5. The
-manager RECOMMENDS a hunt + focus to the operator from the pre-enriched signals; the operator runs it
-live at the gate. No auto-execution.
-
-**Changes**
-- `contracts.py`: add `HuntDecision(run, focus, reason)` (no `live` field: execution is
-  operator-gated). Keep `AnalysisVerdict.hunt_recommended`/`hunt_focus` as advisory inputs.
-- `agent_routing.py`: `decide_hunt(l2, enrichment) -> HuntDecision` reading the pre-enriched
-  criticality (`enrichment["ms"]["endpoint"]`), user risk (`["identity"]`), reputation, and IOC
-  verdicts. No read cache (everything is already in `enrichment`). Keep `should_hunt` as a shim, then
-  delete.
-- Call sites: `orchestrator._step_synthesis` (~1297) and `synthesis_steps.should_hunt(ctx)`. When
-  `run`, the query-building hunt persona runs as today (`complete`, no live tools) and the
-  recommendation + built queries surface at the gate for the operator.
-
-**Tests** `tests/test_agent_routing.py`: truth table over verdict x hunt_recommended x malicious IOC
-x severity x pre-enriched criticality x threat_category; confirm a high-criticality confirmed-TP with
-`hunt_recommended=false` still yields `run=true`.
-
----
-
-## PR-5, L2 tool cleanup + langgraph consistency
+## PR-4, L2 tool cleanup + langgraph consistency
 
 **Goal:** now that reputation/endpoint are pre-enriched and hunt is operator-gated, remove the live
 Defender tools from L2's auto set and stop the two synthesis paths from drifting.
@@ -203,7 +179,7 @@ on the L2 path; the gate hunt still has `defender_run_hunt`.
 
 ---
 
-## PR-6, out-of-band dual confirmation
+## PR-5, out-of-band dual confirmation
 
 **Goal:** the competitor's most distinctive move (user confirmed directly; manager independently
 validated). Email-first, because it works today.
@@ -267,14 +243,13 @@ Fold into the pre-enrichment step, no extra Microsoft API:
 | `User.Read.All` / `User.ReadWrite.All` | PR-3 profile + manager | Held |
 | `AuditLog.Read.All` | PR-3 sign-ins AND MFA registration report | New consent |
 | `IdentityRiskEvent.Read.All` | PR-3 riskDetections | New consent |
-| `Mail.Send` (one SOC mailbox) | PR-6 confirmation | New consent |
+| `Mail.Send` (one SOC mailbox) | PR-5 confirmation | New consent |
 
 ## Sequencing
 
 - **Fastest parity:** PR-1 (reputation, near-zero consent) + PR-3 (identity).
-- **Hunt decision:** PR-2 (endpoint criticality) then PR-4 (`decide_hunt`).
-- **Cleanup:** PR-5 after PR-1/2/3.
-- **Differentiator:** PR-6, needs PR-3's manager expand.
+- **Cleanup:** PR-4 (L2 tool cleanup) after PR-1/2/3.
+- **Differentiator:** PR-5, needs PR-3's manager expand.
 
 ## Definition of done (per PR)
 
