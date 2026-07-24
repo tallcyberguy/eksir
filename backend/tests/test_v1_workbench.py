@@ -141,30 +141,15 @@ def test_cap_oat_filters_noise_and_dedupes(monkeypatch):
     assert out[0]["highlighted"][0]["value"] == "mimikatz.exe"
 
 
-async def test_get_creds_v1_global_fallback(monkeypatch):
-    async def _no_row(customer):  # no DB row → env fallback
+async def test_get_creds_none_when_unconfigured(monkeypatch):
+    """Vision One resolves through the generic get_creds now (no V1 env fallback);
+    an unconfigured provider returns None."""
+
+    async def _no_row(provider, identifier):
         return None
 
-    monkeypatch.setattr(integration_store, "_fetch_v1_row", _no_row)
-    monkeypatch.setattr(
-        integration_store.settings, "v1_api_key", SimpleNamespace(get_secret_value=lambda: "tok")
-    )
-    monkeypatch.setattr(integration_store.settings, "v1_region", "eu")
-    # matching hint is honoured
-    c = await integration_store.get_creds_v1("acme", region_hint="eu")
-    assert (c.api_key, c.region, c.source) == ("tok", "eu", "global")
-    # mismatched hint is ignored — the credential's own region wins
-    c2 = await integration_store.get_creds_v1("acme", region_hint="sg")
-    assert c2.region == "eu"
-
-
-async def test_get_creds_v1_none_when_unconfigured(monkeypatch):
-    async def _no_row(customer):
-        return None
-
-    monkeypatch.setattr(integration_store, "_fetch_v1_row", _no_row)
-    monkeypatch.setattr(integration_store.settings, "v1_api_key", None)
-    assert await integration_store.get_creds_v1("acme") is None
+    monkeypatch.setattr(integration_store, "_fetch_row", _no_row)
+    assert await integration_store.get_creds("vision_one", "acme") is None
 
 
 def test_base_url_region_routing():
@@ -177,11 +162,11 @@ async def test_fetch_v1_oat_failure_keeps_workbench(monkeypatch):
     """An OAT failure must NOT lose the workbench detail (own try/except)."""
     monkeypatch.setattr(orchestrator.settings, "v1_oat_enabled", True)
 
-    async def _creds(customer, region_hint=None):
+    async def _creds(provider, identifier=None):
         api_key = "tok"  # pragma: allowlist secret
-        return SimpleNamespace(api_key=api_key, region="eu", source="global")
+        return SimpleNamespace(api_key=api_key, region="eu", source="integration")
 
-    monkeypatch.setattr(integration_store, "get_creds_v1", _creds)
+    monkeypatch.setattr(integration_store, "get_creds", _creds)
 
     async def ok_wb(alert_id, **kw):
         return WB_DETAIL
@@ -195,20 +180,20 @@ async def test_fetch_v1_oat_failure_keeps_workbench(monkeypatch):
     inc = SimpleNamespace(
         customer="acme", id="ID", normalized={"v1_console_host": "portal.eu.xdr.trendmicro.com"}
     )
-    out = await orchestrator._fetch_v1(inc, "WB-30189-20260526-00008", "eu")
+    out = await orchestrator._fetch_v1(inc, "WB-30189-20260526-00008")
     assert out["workbench"]["model"] == "Credential Dumping via Mimikatz"
     assert out["region"] == "eu"
     assert "oat_error" in out and "oat down" in out["oat_error"]
 
 
 async def test_fetch_v1_raises_when_unconfigured(monkeypatch):
-    async def _none(c, region_hint=None):
+    async def _none(provider, identifier=None):
         return None
 
-    monkeypatch.setattr(integration_store, "get_creds_v1", _none)
+    monkeypatch.setattr(integration_store, "get_creds", _none)
     inc = SimpleNamespace(customer="acme", id="ID", normalized={})
     try:
-        await orchestrator._fetch_v1(inc, "WB-1", "eu")
+        await orchestrator._fetch_v1(inc, "WB-1")
         raise AssertionError("expected RuntimeError")
     except RuntimeError as e:
         assert "not configured" in str(e)
@@ -218,7 +203,7 @@ async def test_fetch_v1_raises_when_unconfigured(monkeypatch):
 async def test_run_proposed_actions_fails_closed_without_creds(monkeypatch):
     from isoc_api.routes import cases
 
-    async def _none(customer, region_hint=None):
+    async def _none(provider, identifier=None):
         return None
 
     called = {"n": 0}
@@ -227,7 +212,7 @@ async def test_run_proposed_actions_fails_closed_without_creds(monkeypatch):
         called["n"] += 1
         return {}
 
-    monkeypatch.setattr(cases.integration_store, "get_creds_v1", _none)
+    monkeypatch.setattr(cases.integration_store, "get_creds", _none)
     monkeypatch.setattr(cases.v1_adapter, "isolate_endpoint", _must_not_fire)
 
     inc = SimpleNamespace(customer="acme", normalized={}, enrichment={})
@@ -247,7 +232,7 @@ async def test_run_proposed_actions_fails_closed_without_creds(monkeypatch):
 async def test_run_proposed_actions_routes_per_customer_creds(monkeypatch):
     from isoc_api.routes import cases
 
-    async def _creds(customer, region_hint=None):
+    async def _creds(provider, identifier=None):
         api_key = "CUST_KEY"  # pragma: allowlist secret
         return SimpleNamespace(region="us", api_key=api_key, source="integration")
 
@@ -257,7 +242,7 @@ async def test_run_proposed_actions_routes_per_customer_creds(monkeypatch):
         seen.update(endpoint_name=endpoint_name, region=region, api_key=api_key)
         return {"id": "task-1"}
 
-    monkeypatch.setattr(cases.integration_store, "get_creds_v1", _creds)
+    monkeypatch.setattr(cases.integration_store, "get_creds", _creds)
     monkeypatch.setattr(cases.v1_adapter, "isolate_endpoint", _iso)
 
     inc = SimpleNamespace(customer="acme", normalized={"v1_region": "us"}, enrichment={})

@@ -1189,13 +1189,10 @@ async def _run_proposed_actions(session, inc, enrichment: dict, approve_ids, use
     v1_actions = list(enrichment.get("v1_actions") or [])
     executed: list[dict] = []
     # Resolve per-customer V1 credentials ONCE (DB integration row for this
-    # customer → 'default' row → global env fallback). Fail closed below if none —
-    # so a write never fires against the wrong/global tenant for an unmapped
-    # customer (ADR-0003 #6 / the adversarial correction). region_hint from the
-    # alert console URL is honoured only when it matches the credential's region.
-    creds = await integration_store.get_creds_v1(
-        inc.customer, region_hint=(inc.normalized or {}).get("v1_region")
-    )
+    # customer, then the 'default' row). Fail closed below if none, so a write
+    # never fires against the wrong tenant for an unmapped customer
+    # (ADR-0003 #6 / the adversarial correction).
+    creds = await integration_store.get_creds("vision_one", inc.customer)
     # Defender creds resolved lazily — only if a Defender-provider action is approved.
     def_creds = None
     def_creds_done = False

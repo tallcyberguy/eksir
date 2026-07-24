@@ -7,7 +7,6 @@ Started by docker-compose service `worker`:
 from __future__ import annotations
 
 import calendar
-import json
 import time
 import uuid
 from datetime import datetime, timezone
@@ -19,7 +18,6 @@ from arq.cron import cron
 
 from . import mailer, notify
 from .adapters import (
-    graph_mail_adapter,
     integration_store,
     pe_static,
     remnux_adapter,
@@ -258,140 +256,6 @@ async def send_mention_emails(ctx, payload: dict) -> dict:
     return {"sent": sent}
 
 
-async def mailbox_poll(ctx) -> dict:
-    """Poll the configured mailbox for unread alert emails and feed each NEW one
-    into the same normalize→pipeline path the webhook uses.
-
-    Idempotent: de-dupes on `internetMessageId` against existing incidents, and
-    (Mail.ReadWrite) marks each processed message read so the isRead filter
-    excludes it next poll — the DB de-dupe is the backstop if marking fails.
-    Runs every minute via cron; a no-op when email ingest is disabled or Graph
-    isn't configured, so it's safe to ship dark.
-    """
-    if not settings.email_ingest_enabled or not graph_mail_adapter.is_configured():
-        return {"skipped": "email ingest disabled or Graph not configured"}
-
-    try:
-        messages = await graph_mail_adapter.list_unread(top=25)
-    except graph_mail_adapter.GraphError as e:
-        logger.warning("mailbox_poll.list_failed", status=e.status, error=e.message)
-        return {"error": e.message}
-
-    ingested = 0
-    redis = ctx["redis"]
-    for msg in messages:
-        origin = graph_mail_adapter.message_origin(msg)
-        mid = origin["internet_message_id"]
-        if not mid:
-            continue
-        # MSSP intake: attribute each alert to its end-customer by the V1 email
-        # company name. Strict — an unknown company is quarantined (customer=None),
-        # never defaulted, so one client's alert can't be tagged as another's.
-        company = graph_mail_adapter.company_from_subject(origin.get("subject"))
-        customer, attribution = _attribute_customer(company)
-        origin["company"] = company
-        origin["attributed_customer"] = customer
-        origin["attribution"] = attribution
-        if attribution == "unattributed":
-            logger.warning(
-                "mailbox_poll.unattributed", company=company, subject=origin.get("subject")
-            )
-        async with AsyncSessionLocal() as session:
-            already = await _mail_already_ingested(session, mid)
-            if not already:
-                inc = Incident(
-                    title="(unparsed)",
-                    status=CaseStatus.RECEIVED,
-                    ingest_source=IngestSource.EMAIL,
-                    customer=customer,
-                    raw_payload={
-                        "text": graph_mail_adapter.message_to_alert_text(msg),
-                        # detect_source already routes V1 emails; this is just a fallback.
-                        "source_hint": "visionone",
-                        "original": origin,
-                    },
-                )
-                session.add(inc)
-                await session.flush()
-                incident_id = str(inc.id)
-                await session.commit()
-        if already:
-            # Ingested on a previous run but still unread (an earlier mark-read
-            # failed) — tidy it up so it stops coming back, then skip.
-            await _mark_read_safe(origin["graph_id"])
-            continue
-        await redis.enqueue_job("pipeline_run", incident_id)
-        await _mark_read_safe(origin["graph_id"])
-        ingested += 1
-
-    if ingested:
-        logger.info("mailbox_poll.ingested", ingested=ingested, scanned=len(messages))
-    return {"scanned": len(messages), "ingested": ingested}
-
-
-async def _mail_already_ingested(session, internet_message_id: str) -> bool:
-    """True if an incident already exists for this email (survives restarts —
-    the dedupe key lives in incident.raw_payload, not in memory)."""
-    from sqlalchemy import select
-
-    row = (
-        await session.execute(
-            select(Incident.id)
-            .where(
-                Incident.raw_payload["original"]["internet_message_id"].astext
-                == internet_message_id
-            )
-            .limit(1)
-        )
-    ).first()
-    return row is not None
-
-
-async def _mark_read_safe(graph_id: str | None) -> None:
-    """Best-effort mark-as-read. Honours the `graph_mark_read` flag and never
-    raises — a failure just means the message reappears next poll and the DB
-    de-dupe skips it."""
-    if not (settings.graph_mark_read and graph_id):
-        return
-    try:
-        await graph_mail_adapter.mark_read(graph_id)
-    except graph_mail_adapter.GraphError as e:
-        logger.warning("mailbox_poll.mark_read_failed", status=e.status, error=e.message)
-
-
-def _company_customer_map() -> dict[str, str]:
-    """Parse EMAIL_COMPANY_MAP (JSON) into a casefolded {company: customer} dict."""
-    raw = settings.email_company_map
-    if not raw:
-        return {}
-    try:
-        data = json.loads(raw)
-    except (ValueError, TypeError):
-        logger.warning("mailbox_poll.bad_company_map")
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    return {str(k).strip().casefold(): str(v) for k, v in data.items()}
-
-
-def _attribute_customer(company: str | None) -> tuple[str | None, str]:
-    """Map a V1 email company name to an isoc customer key.
-
-    Returns (customer, status). With a company map configured (MSSP mode),
-    attribution is strict: an unmatched company yields (None, 'unattributed')
-    rather than a guess. With no map (single-tenant), falls back to the
-    configured default.
-    """
-    cmap = _company_customer_map()
-    if cmap:
-        if company:
-            cust = cmap.get(company.strip().casefold())
-            if cust:
-                return cust, "matched"
-        return None, "unattributed"
-    return (settings.email_ingest_default_customer or None), "default"
-
-
 # ── Pull ingest (scheduled console API poll → RECEIVED incident) ─────────
 _PULL_DEDUP_TTL = 7 * 24 * 3600  # seconds a (provider, external_id) claim lives
 
@@ -520,11 +384,9 @@ async def pull_ingest(ctx) -> dict:
 async def _resolve_pull_creds(provider: str, identifier: str):
     """Resolve credentials for a pull source from the per-customer store.
 
-    Vision One folds region into its own creds; everything else uses the generic
-    resolver. Returns None when nothing is configured (source stays a no-op).
+    Every provider resolves through the same generic seam. Returns None when nothing
+    is configured (the source stays a no-op).
     """
-    if provider == "vision_one":
-        return await integration_store.get_creds_v1(identifier)
     return await integration_store.get_creds(provider, identifier)
 
 
@@ -551,8 +413,8 @@ async def _create_pull_incident(
 ) -> str | None:
     """Create a RECEIVED incident from a pulled alert, or None if already ingested.
 
-    Mirrors mailbox_poll: stores raw text + the original console object +
-    source_hint so the deterministic parser/normalizer runs downstream unchanged.
+    Stores raw text + the original console object + source_hint so the
+    deterministic parser/normalizer runs downstream unchanged.
     """
     async with AsyncSessionLocal() as session:
         if await _pull_already_ingested(session, row.provider, external_id):
@@ -561,7 +423,9 @@ async def _create_pull_incident(
             title="(unparsed)",
             status=CaseStatus.RECEIVED,
             ingest_source=IngestSource.PULL,
-            customer=row.customer,
+            # Backstop for legacy sources saved before customer was required: attribute to
+            # the creds identifier so the incident still resolves the right tenant's creds.
+            customer=row.customer or (row.identifier if row.identifier != "default" else None),
             raw_payload={
                 "text": alert.get("raw_text", ""),
                 "source_hint": alert.get("source_hint"),
@@ -790,7 +654,6 @@ class WorkerSettings:
         threat_intel_sync,
         report_generate,
         send_mention_emails,
-        mailbox_poll,
         pull_ingest,
         batch_import,
     ]
@@ -801,9 +664,6 @@ class WorkerSettings:
         # Branded reports (F7) — hourly check; schedules fire at 06:00 UTC per
         # cadence. Generates to draft only, never sends. No-op when none due.
         cron(report_generate, minute={0}, run_at_startup=False),
-        # Mailbox poll — every minute. The job itself is a no-op unless
-        # email_ingest_enabled + Graph creds are set, so this is safe to leave on.
-        cron(mailbox_poll, minute=set(range(60)), run_at_startup=True),
         # Pull ingest — every minute; per-source `interval_seconds` gates the
         # actual poll. No-op unless pull_ingest_enabled + an enabled source row.
         cron(pull_ingest, minute=set(range(60)), run_at_startup=True),

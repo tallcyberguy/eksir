@@ -42,3 +42,13 @@ export const riskPill = (risk: number) => {
   if (risk >= 40) return "pill pill-high";
   return "pill pill-medium";
 };
+
+// Defang an IOC token (URL / IP / domain / email) so it renders inert and un-clickable.
+// Apply ONLY to individual IOC values or autolink anchor text — never to whole report
+// prose (it breaks every '.'). Breaks the scheme (http->hxxp), all dots, and '@'.
+export function defang(v: string): string {
+  return String(v ?? "")
+    .replace(/http(s?):\/\//gi, "hxxp$1://")
+    .replace(/\./g, "[.]")
+    .replace(/@/g, "[at]");
+}

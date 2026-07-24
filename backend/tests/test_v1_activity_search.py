@@ -151,10 +151,10 @@ async def test_run_hunt_persists_evidence_and_count(monkeypatch):
     stamps a lean evidence_count onto stages.hunt for the UI/download button."""
     monkeypatch.setattr(manager_chat.settings, "v1_activity_search_enabled", True)
 
-    async def _creds(customer, region_hint=None):
+    async def _creds(provider, identifier=None):
         return SimpleNamespace(region="eu", api_key="tok")  # pragma: allowlist secret
 
-    monkeypatch.setattr(manager_chat.integration_store, "get_creds_v1", _creds)
+    monkeypatch.setattr(manager_chat.integration_store, "get_creds", _creds)
 
     async def _activity(query, **kw):
         return [{"endpointHostName": "H2"}, {"endpointHostName": "H3"}]
@@ -176,7 +176,7 @@ async def test_run_hunt_persists_evidence_and_count(monkeypatch):
 
     # complete_with_tools: simulate the model invoking the search once (fills the
     # collector), then returning a HuntResult.
-    async def _cwt(*, system, user, tools, dispatch, model=None, gated=True):
+    async def _cwt(*, system, user, tools, dispatch, model=None, gated=True, on_tool_call=None):
         await dispatch["get_endpoint_activity"]({"query": "endpointHostName:H2"})
         return SimpleNamespace(
             status="ok",
@@ -252,10 +252,10 @@ async def test_hunt_activity_tool_off_by_flag(monkeypatch):
 async def test_hunt_activity_tool_on_with_creds(monkeypatch):
     monkeypatch.setattr(manager_chat.settings, "v1_activity_search_enabled", True)
 
-    async def _creds(customer, region_hint=None):
+    async def _creds(provider, identifier=None):
         return SimpleNamespace(region="eu", api_key="tok")  # pragma: allowlist secret
 
-    monkeypatch.setattr(manager_chat.integration_store, "get_creds_v1", _creds)
+    monkeypatch.setattr(manager_chat.integration_store, "get_creds", _creds)
     inc = SimpleNamespace(
         customer="acme", normalized={"timestamp": "2026-07-01T12:00:00Z"}, enrichment={}
     )
@@ -270,10 +270,10 @@ async def test_hunt_activity_tool_on_with_creds(monkeypatch):
 async def test_hunt_activity_tool_none_without_creds(monkeypatch):
     monkeypatch.setattr(manager_chat.settings, "v1_activity_search_enabled", True)
 
-    async def _none(customer, region_hint=None):
+    async def _none(provider, identifier=None):
         return None
 
-    monkeypatch.setattr(manager_chat.integration_store, "get_creds_v1", _none)
+    monkeypatch.setattr(manager_chat.integration_store, "get_creds", _none)
     inc = SimpleNamespace(customer="acme", normalized={}, enrichment={})
     assert await manager_chat._hunt_activity_tool(inc) is None
 

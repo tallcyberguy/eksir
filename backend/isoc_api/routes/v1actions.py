@@ -102,9 +102,7 @@ async def _resolve_creds(inc: Incident):
     Fail closed (503) when nothing is configured, so an ad-hoc action never fires
     against the wrong/global tenant for an unmapped customer.
     """
-    creds = await integration_store.get_creds_v1(
-        inc.customer, region_hint=(inc.normalized or {}).get("v1_region")
-    )
+    creds = await integration_store.get_creds("vision_one", inc.customer)
     if creds is None:
         raise HTTPException(
             503, f"No Vision One credentials for customer '{inc.customer or '(none)'}'"

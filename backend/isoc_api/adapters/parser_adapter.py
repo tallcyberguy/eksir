@@ -81,6 +81,10 @@ def _native_parse_fn(source: str):
         from . import ocsf_defender
 
         return ocsf_defender.parse
+    if source == "visionone":
+        from . import ocsf_v1
+
+        return ocsf_v1.parse
     return None
 
 

@@ -4,7 +4,7 @@ Pulls Workbench alerts via the v3.0 API and hands each raw alert to the shared
 parser/normalizer. This is the direct-API replacement for forwarding V1 alerts
 by email — and it carries richer data (impactScope, matchedRules with MITRE,
 indicators) than the email ever did. Credentials + region resolve through the
-existing per-customer store (`integration_store.get_creds_v1`).
+existing per-customer store (`integration_store.get_creds`).
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ class VisionOneIngestAdapter:
     provider = _PROVIDER
 
     async def fetch(self, *, creds: Any, cursor: dict[str, Any], max_items: int) -> FetchResult:
-        # Cold start = ~now (no backfill), matching mailbox_poll's "only new".
+        # Cold start = ~now (no backfill): the first poll takes only new alerts.
         start = cursor.get("last_poll_at") or _iso(
             datetime.now(timezone.utc) - timedelta(minutes=1)
         )

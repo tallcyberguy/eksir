@@ -38,7 +38,7 @@ class SentinelOneIngestAdapter:
     async def fetch(self, *, creds: Any, cursor: dict[str, Any], max_items: int) -> FetchResult:
         base_url = getattr(creds, "base_url", None)
         api_key = getattr(creds, "api_key", None)
-        # Cold start = ~now (no backfill), matching mailbox_poll's "only new".
+        # Cold start = ~now (no backfill): the first poll takes only new alerts.
         since = cursor.get("last_poll_at") or _iso(
             datetime.now(timezone.utc) - timedelta(minutes=1)
         )

@@ -28,6 +28,7 @@ from .orchestrator import (
     _emit,
     _hunt_iocs,
     _llm_call_row,
+    _make_tool_emitter,
     _persona_stage_done,
     _persona_stage_start,
 )
@@ -295,9 +296,7 @@ async def _hunt_activity_tool(incident: Incident, collector: list | None = None)
     if not settings.v1_activity_search_enabled:
         return None
     try:
-        creds = await integration_store.get_creds_v1(
-            incident.customer, region_hint=(incident.normalized or {}).get("v1_region")
-        )
+        creds = await integration_store.get_creds("vision_one", incident.customer)
     except Exception:
         creds = None
     if creds is None:
@@ -388,6 +387,7 @@ async def _run_hunt(
             dispatch=dispatch,
             model=DEEP,
             gated=False,
+            on_tool_call=_make_tool_emitter(session, incident, "hunt"),
         )
     else:
         res = await complete(system=prompts.HUNT_SYSTEM, user=user, model=DEEP)
@@ -580,6 +580,7 @@ async def manager_turn(session: AsyncSession, incident: Incident, message: str) 
         model=DEEP,
         gated=False,
         max_rounds=5,
+        on_tool_call=_make_tool_emitter(session, incident, "manager"),
     )
     session.add(_llm_call_row(incident_id=incident.id, purpose="manager_chat", result=result))
     reply = result.text if result.status == "ok" else f"(manager unavailable: {result.error})"

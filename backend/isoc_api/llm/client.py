@@ -21,6 +21,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from typing import Any, Awaitable, Callable
 
 import tiktoken
 from openai import AsyncOpenAI
@@ -313,6 +314,7 @@ async def complete_with_tools(
     temperature: float | None = None,
     max_rounds: int = 4,
     gated: bool = True,
+    on_tool_call: Callable[[str, dict, Any], Awaitable[None]] | None = None,
 ) -> LLMResult:
     """Multi-turn completion that lets the model call tools.
 
@@ -416,6 +418,14 @@ async def complete_with_tools(
                     except Exception as e:  # a tool failure must not kill synthesis
                         logger.warning("llm.tool_failed", tool=name, error=str(e))
                         result = {"error": str(e)}
+                if on_tool_call is not None:
+                    # Surface the call (name + args + result) on the incident timeline so
+                    # an analyst can see which API ran with which parameters. Best-effort:
+                    # a timeline write must never break synthesis.
+                    try:
+                        await on_tool_call(name, args, result)
+                    except Exception as _e:  # noqa: BLE001
+                        logger.warning("llm.tool_emit_failed", tool=name, error=str(_e))
                 messages.append(
                     {
                         "role": "tool",

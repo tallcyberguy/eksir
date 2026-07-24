@@ -11,7 +11,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,6 +91,32 @@ async def _emit(
         )
     )
     await session.flush()
+
+
+def _make_tool_emitter(
+    session: AsyncSession, incident: Incident, step: str
+) -> Callable[[str, dict, Any], Awaitable[None]]:
+    """Build an ``on_tool_call`` hook for ``complete_with_tools`` that logs each tool
+    invocation (name + args + a truncated result) to the incident timeline, so an
+    analyst can see which API ran with which parameters. Best-effort."""
+    import json
+
+    async def _emit_tool(name: str, args: dict, result: Any) -> None:
+        arg_str = ", ".join(f"{k}={str(v)[:60]}" for k, v in (args or {}).items())
+        await _emit(
+            session,
+            incident,
+            "tool_call",
+            display=f"{name}({arg_str})"[:200],
+            payload={
+                "tool": name,
+                "args": args,
+                "result_preview": json.dumps(result, default=str)[:600],
+            },
+            step=step,
+        )
+
+    return _emit_tool
 
 
 async def run_pipeline(session: AsyncSession, incident_id: uuid.UUID) -> None:
@@ -402,8 +428,8 @@ async def _step_dedup(session: AsyncSession, incident: Incident) -> None:
     # Heuristic re-rank: bias toward human-verified, recent, well-reasoned
     # prior cases. Original Qdrant score preserved in `score`; new field
     # `adjusted_score` drives the order.
-    sim_ranked = rerank.rerank(sim or [])
-    nway = _compute_n_way(sim_ranked, min_agreement=N_WAY_POPULATE_MIN)
+    sim_ranked = rerank.rerank(sim or [], customer)
+    nway = _compute_n_way(sim_ranked, customer, min_agreement=N_WAY_POPULATE_MIN)
 
     enrichment = incident.enrichment or {}
     enrichment.update(
@@ -431,7 +457,9 @@ async def _step_dedup(session: AsyncSession, incident: Incident) -> None:
         )
 
 
-def _compute_n_way(matches: list[dict], min_agreement: int = N_WAY_POPULATE_MIN) -> dict | None:
+def _compute_n_way(
+    matches: list[dict], customer: str | None, min_agreement: int = N_WAY_POPULATE_MIN
+) -> dict | None:
     """Tally verdicts across `matches` and return the majority if ≥ min_agreement.
 
     Operates on whatever survived the min_score filter — so 5 matches all
@@ -446,7 +474,15 @@ def _compute_n_way(matches: list[dict], min_agreement: int = N_WAY_POPULATE_MIN)
     if not matches:
         return None
 
-    verified = [m for m in matches if m.get("human_verified")]
+    # Only count analyst-verified priors from the SAME tenant. A different customer's
+    # FP must never form a majority for this one (that produced the "3/7 EMINEVIM" noise
+    # on INC-001140), and a null-customer query matches only null-customer priors.
+    q_cust = store_adapter.canonical_customer(customer)
+    verified = [
+        m
+        for m in matches
+        if m.get("human_verified") and store_adapter.canonical_customer(m.get("customer")) == q_cust
+    ]
     if len(verified) < min_agreement:
         return None
 
@@ -629,9 +665,9 @@ async def _step_enrich(session: AsyncSession, incident: Incident) -> None:
         settings.v1_autofetch_enabled
         and (incident.normalized or {}).get("source_product") == "visionone"
     ):
-        _wb_id, _v1_region = _v1_alert_ref(incident)
+        _wb_id, _ = _v1_alert_ref(incident)
         if _wb_id:
-            v1_task = _fetch_v1(incident, _wb_id, _v1_region)
+            v1_task = _fetch_v1(incident, _wb_id)
 
     # return_exceptions=True so a single failing branch can't nuke its siblings.
     triage_results, ip_enrichments, kb_hits, v1_result = await asyncio.gather(
@@ -1215,6 +1251,7 @@ async def _step_synthesis(
         max_tokens=settings.deep_max_tokens,  # report + verdict block must fit (was 4096 -> truncated)
         tools=tools,
         dispatch=dispatch,
+        on_tool_call=_make_tool_emitter(session, incident, "l2"),
     )
     session.add(
         _llm_call_row(
@@ -1496,7 +1533,7 @@ def _v1_alert_ref(incident: Incident) -> tuple[str | None, str | None]:
     return wb, region
 
 
-async def _fetch_v1(incident: Incident, wb_id: str, region_hint: str | None) -> dict:
+async def _fetch_v1(incident: Incident, wb_id: str) -> dict:
     """Read-only V1 enrichment: workbench detail (always) + OAT (optional).
 
     Returns a capped dict for enrichment['v1']. Raises only on a total workbench
@@ -1504,7 +1541,7 @@ async def _fetch_v1(incident: Incident, wb_id: str, region_hint: str | None) -> 
     """
     from ..adapters import integration_store, v1_adapter
 
-    creds = await integration_store.get_creds_v1(incident.customer, region_hint=region_hint)
+    creds = await integration_store.get_creds("vision_one", incident.customer)
     if creds is None:
         raise RuntimeError("Vision One not configured")
     region = creds.region
