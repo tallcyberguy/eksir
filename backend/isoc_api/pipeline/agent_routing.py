@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .contracts import AnalysisVerdict, HuntResult, ProposedAction, TriageResult
+from .contracts import AnalysisVerdict, HuntDecision, HuntResult, ProposedAction, TriageResult
 
 # escalate_to_l2_if_any → threat_category in [...]
 ESCALATE_THREAT_CATEGORIES = {
@@ -111,8 +111,61 @@ def should_escalate_to_l2(
 
 
 def should_hunt(l2: AnalysisVerdict) -> bool:
-    """routing.yaml: hunt_if (l2_verdict == true_positive AND hunt_recommended)."""
+    """routing.yaml: hunt_if (l2_verdict == true_positive AND hunt_recommended).
+
+    Back-compat shim retained during migration; new call sites use `decide_hunt`.
+    """
     return l2.verdict == "true_positive" and bool(l2.hunt_recommended)
+
+
+# Endpoint criticality / user-risk levels that, on a confirmed TP, warrant a hunt
+# even when L2 did not tick hunt_recommended (ADR-0009 D5: the model cannot veto a
+# hunt on a confirmed-critical asset). These come from the pre-L2 Microsoft
+# enrichment (BUILD-PLAN-ADR-0009 PR-1/2/3 -> enrichment["ms"]); until that lands
+# the keys are absent and decide_hunt degrades to L2's recommendation plus the
+# malicious-IOC corroboration already computed by deterministic enrichment.
+_HUNT_CRITICALITY = {"high", "critical"}
+_HUNT_USER_RISK = {"high"}
+
+
+def _ms_endpoint_criticality(enrichment: dict[str, Any]) -> str | None:
+    ep = (enrichment.get("ms") or {}).get("endpoint") or {}
+    val = ep.get("criticality")
+    return str(val).lower() if val else None
+
+
+def _ms_user_risk(enrichment: dict[str, Any]) -> str | None:
+    ident = (enrichment.get("ms") or {}).get("identity") or {}
+    val = ident.get("risk_level")
+    return str(val).lower() if val else None
+
+
+def decide_hunt(l2: AnalysisVerdict, enrichment: dict[str, Any]) -> HuntDecision:
+    """Manager-owned hunt decision (ADR-0009 D5). On a confirmed true positive a
+    hunt is warranted when L2 recommends it OR a hard signal demands it (a
+    malicious indicator, a high-criticality host, or a high-risk user), so the
+    model cannot veto a hunt on a confirmed critical. Returns run/focus/reason;
+    the operator runs the live hunt at the gate. Supersedes `should_hunt`.
+    """
+    if (l2.verdict or "").lower() != "true_positive":
+        return HuntDecision(run=False, focus=l2.hunt_focus, reason="verdict is not a true positive")
+
+    reasons: list[str] = []
+    if l2.hunt_recommended:
+        reasons.append("L2 recommended a hunt")
+    if any_malicious_ioc(enrichment):
+        reasons.append("enrichment flagged a malicious indicator")
+    crit = _ms_endpoint_criticality(enrichment)
+    if crit in _HUNT_CRITICALITY:
+        reasons.append(f"impacted host criticality is {crit}")
+    if _ms_user_risk(enrichment) in _HUNT_USER_RISK:
+        reasons.append("impacted user is flagged high-risk")
+
+    return HuntDecision(
+        run=bool(reasons),
+        focus=l2.hunt_focus,
+        reason="; ".join(reasons) if reasons else "confirmed TP but no hunt signal",
+    )
 
 
 def should_run_forensics(l2: AnalysisVerdict, hunt: HuntResult | None) -> bool:
@@ -298,8 +351,7 @@ def _propose_v1_actions(
                 kind="collect_file",
                 params=params,
                 justification=(
-                    f"File hash unknown to threat intel; collect {fpath} from "
-                    f"{target} for analysis"
+                    f"File hash unknown to threat intel; collect {fpath} from {target} for analysis"
                 ),
             )
         )
