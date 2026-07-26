@@ -298,8 +298,7 @@ def _propose_v1_actions(
                 kind="collect_file",
                 params=params,
                 justification=(
-                    f"File hash unknown to threat intel; collect {fpath} from "
-                    f"{target} for analysis"
+                    f"File hash unknown to threat intel; collect {fpath} from {target} for analysis"
                 ),
             )
         )

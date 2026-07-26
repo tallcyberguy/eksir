@@ -204,5 +204,6 @@ Steps 1–2 ship independently (no external calls). Step 3 is the first live API
   #1 (add a backend MCP-client transport alongside the adapters).
 - Gate-only proves too restrictive (analysts want auto-hunt with live queries) →
   promote read-only queries into the hunt persona behind a separate budget guard.
+  **→ taken up by ADR-0009 (proposed): the read/write split + bounded live auto-hunt.**
 - A provider issues per-site (not per-console) S1 tokens → `identifier` semantics
   extend to `(console, site)` without a schema change (it's a free-form string).

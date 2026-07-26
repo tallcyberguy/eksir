@@ -20,6 +20,7 @@ editing the old one. Status reflects what actually shipped in code, not just wha
 | [0006](ADR-0006-connector-framework.md) | Durable connector framework (typed contract + OCSF normalization) | Accepted; P0 + registry flip landed, P1 (OCSF) started, P2 not started |
 | [0007](ADR-0007-edr-integrations-and-gate-tools.md) | Multi-tenant EDR/XDR integrations & gate-only live tools | Implemented for Microsoft Defender (the SentinelOne design in the body was not built as written) |
 | [0008](ADR-0008-procedures-library.md) | Procedures (SOP) library injected into persona prompts | Proposed (design only, not implemented) |
+| [0009](ADR-0009-live-hunt-and-manager-routing.md) | Pre-gate live hunt, expanded read tools & manager-owned hunt routing | Proposed (design only, not implemented; amends ADR-0007 #2) |
 
 ## Status vocabulary
 

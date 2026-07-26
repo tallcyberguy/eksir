@@ -76,6 +76,9 @@ class SynthCtx:
             sensitive=self.sensitive_ctx,
             deobfuscation=self.enrichment.get("deobfuscation"),
             v1_enrichment=self.enrichment.get("v1"),
+            ms_reputation=(self.enrichment.get("ms") or {}).get("reputation"),
+            ms_endpoint=(self.enrichment.get("ms") or {}).get("endpoint"),
+            ms_identity=(self.enrichment.get("ms") or {}).get("identity"),
         )
 
 
@@ -232,6 +235,12 @@ async def run_l2(session: Any, incident: Any, ctx: SynthCtx) -> bool:
         ctx.stages["l1"] = _orch._triage_result_from_fast(ctx.fast_verdict, incident.severity)
 
     l2_t0 = await _orch._persona_stage_start(session, incident, "l2")
+    # ADR-0009 PR-1: deterministic pre-L2 Microsoft enrichment (parity with the
+    # legacy path). Fail-soft; escalated-only (maybe_short_circuit already ran).
+    from . import prefetch
+
+    if await prefetch.prefetch_ms_enrichment(incident) is not None:
+        ctx.enrichment = incident.enrichment or ctx.enrichment
     ctx.deep_briefing = ctx.render(extra={"fast_classifier": ctx.fast_verdict})
     user_prompt = build_user_prompt(ctx.deep_briefing)
     result = await complete_with_tools(
