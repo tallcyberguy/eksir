@@ -18,6 +18,15 @@ _MAX_TRIAGE_BLOCKS = 20
 _MAX_OAT_ROWS = 10
 
 
+def _custom_note(ci: dict | None) -> str:
+    """A compact note when an IOC is on the tenant's own custom allow/block list."""
+    matches = (ci or {}).get("matches") or []
+    if not matches:
+        return ""
+    actions = ",".join(sorted({str(m.get("action")) for m in matches if m.get("action")}))
+    return f", custom-list={actions}" if actions else ", custom-list=listed"
+
+
 def render(
     *,
     normalized: dict[str, Any],
@@ -38,6 +47,7 @@ def render(
     v1_enrichment: dict | None = None,
     entities: list[dict] | None = None,
     cluster: dict | None = None,
+    ms_reputation: dict | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append("# Pre-synthesis briefing")
@@ -446,6 +456,37 @@ def render(
             lines.append(
                 f"- `{e.get('ip')}` — rDNS: {e.get('rdns')}, "
                 f"ISP: {e.get('org')}, {e.get('city')}/{e.get('country')}"
+            )
+        lines.append("")
+
+    # Microsoft Defender reputation (ADR-0009 PR-1 pre-L2 enrichment)
+    if ms_reputation and any(ms_reputation.get(k) for k in ("files", "domains", "ips")):
+        lines.append("## Microsoft Defender reputation")
+        for f in ms_reputation.get("files") or []:
+            info = f.get("info") or {}
+            stats = f.get("stats") or {}
+            det = info.get("determinationValue") or info.get("determinationType")
+            lines.append(
+                f"- file `{f.get('value')}`: determination={det or '?'}, "
+                f"signer={info.get('signer') or '?'}, "
+                f"valid_cert={info.get('isValidCertificate')}, "
+                f"org_prevalence={stats.get('organizationPrevalence', '?')}"
+                f"{_custom_note(f.get('custom_indicator'))}"
+            )
+        for d in ms_reputation.get("domains") or []:
+            stats = d.get("stats") or {}
+            lines.append(
+                f"- domain `{d.get('value')}`: "
+                f"org_prevalence={stats.get('organizationPrevalence', '?')}, "
+                f"first_seen={stats.get('orgFirstSeen', '?')}"
+                f"{_custom_note(d.get('custom_indicator'))}"
+            )
+        for ip in ms_reputation.get("ips") or []:
+            stats = ip.get("stats") or {}
+            lines.append(
+                f"- ip `{ip.get('value')}`: "
+                f"org_prevalence={stats.get('organizationPrevalence', '?')}"
+                f"{_custom_note(ip.get('custom_indicator'))}"
             )
         lines.append("")
 

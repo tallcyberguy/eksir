@@ -155,11 +155,18 @@ async def run_hunting_query(
     return results[:max_records]
 
 
-async def _mde_get(path: str, *, tenant_id: str | None, client_id: Any, client_secret: Any) -> dict:
+async def _mde_get(
+    path: str,
+    *,
+    tenant_id: str | None,
+    client_id: Any,
+    client_secret: Any,
+    params: dict[str, Any] | None = None,
+) -> dict:
     """Authenticated GET against the Defender for Endpoint API. Non-2xx raises."""
     token = await _token(tenant_id, client_id, client_secret, scope=_MDE_SCOPE)
     async with httpx.AsyncClient(headers={"Authorization": f"Bearer {token}"}, timeout=30.0) as c:
-        resp = await c.get(f"{_MDE}/{path}")
+        resp = await c.get(f"{_MDE}/{path}", params=params)
     if not resp.is_success:
         raise DefenderError(resp.status_code, resp.text[:300])
     return resp.json() or {}
@@ -199,6 +206,50 @@ async def get_ip_stats(
         client_id=client_id,
         client_secret=client_secret,
     )
+
+
+async def get_file_info(
+    file_id: str, *, tenant_id: str | None, client_id: Any, client_secret: Any
+) -> dict:
+    """File profile + Microsoft's OWN verdict for a SHA-1/SHA-256: determinationType/
+    determinationValue, signer/issuer, isValidCertificate, filePublisher, global
+    prevalence. Complements get_file_stats (org prevalence). File.Read.All."""
+    return await _mde_get(
+        f"files/{file_id}",
+        tenant_id=tenant_id,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
+async def get_domain_stats(
+    domain: str, *, tenant_id: str | None, client_id: Any, client_secret: Any
+) -> dict:
+    """Organisation prevalence + first/last seen for a domain. Url.Read.All. MDE has
+    no /api/urls endpoint; a "URL profile" IS the domain stats."""
+    return await _mde_get(
+        f"domains/{domain}/stats",
+        tenant_id=tenant_id,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
+async def check_custom_indicator(
+    value: str, *, tenant_id: str | None, client_id: Any, client_secret: Any
+) -> dict:
+    """Whether an indicator value is on the tenant's OWN custom allow/block list (Ti
+    custom indicators). Returns {"matches": [...]} (each with action=Allowed/Block/
+    Warn/...). A decisive LOCAL reputation check: "already Allowed" is a strong FP
+    signal, "on the blocklist" a strong TP signal. Ti.ReadWrite covers the read."""
+    body = await _mde_get(
+        "indicators",
+        tenant_id=tenant_id,
+        client_id=client_id,
+        client_secret=client_secret,
+        params={"$filter": f"indicatorValue eq '{value}'"},
+    )
+    return {"matches": body.get("value") or []}
 
 
 # ── Response actions (Defender for Endpoint API) — ANALYST-GATED, not auto-run ─

@@ -201,6 +201,11 @@ class Settings(BaseSettings):
     # ThreatHunting.Read.All + WindowsDefenderATP Machine/File/Ip.Read.All perms.
     defender_tools_enabled: bool = False
 
+    # ADR-0009 PR-1: deterministic pre-L2 Microsoft enrichment (reputation of the
+    # alert's IOCs) fetched just before the deep call, for escalated alerts only.
+    # Read-only + fail-soft + per-tenant Defender creds. Off by default.
+    ms_autoenrich_enabled: bool = False
+
     # ── REMnux ───────────────────────────────────────────────────────────
     remnux_container_name: str = "isoc-remnux-1"
     remnux_default_timeout_seconds: int = 600

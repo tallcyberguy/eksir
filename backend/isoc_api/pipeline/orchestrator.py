@@ -1096,6 +1096,7 @@ async def _step_synthesis(
             v1_enrichment=enrichment.get("v1"),
             entities=enrichment.get("entities") or [],
             cluster=enrichment.get("cluster"),
+            ms_reputation=(enrichment.get("ms") or {}).get("reputation"),
         )
 
     # ── Tier 1: fast classifier ─────────────────────────────────────────
@@ -1225,6 +1226,24 @@ async def _step_synthesis(
         )
         incident.status = CaseStatus.AWAITING_REVIEW
         return
+
+    # ADR-0009 PR-1: deterministic pre-L2 Microsoft enrichment (reputation of the
+    # alert's IOCs). Read-only, fail-soft, gated (ms_autoenrich_enabled + creds).
+    # Escalated-only by construction: short-circuited alerts already returned above.
+    from . import prefetch
+
+    ms_rep = await prefetch.prefetch_ms_enrichment(incident)
+    if ms_rep is not None:
+        enrichment = incident.enrichment or enrichment  # refresh local binding for _render
+        _counts = {k: len(ms_rep.get(k) or []) for k in ("files", "domains", "ips")}
+        await _emit(
+            session,
+            incident,
+            "ms_autoenrich",
+            display=f"Pre-L2 Microsoft reputation enriched ({sum(_counts.values())} indicator(s))",
+            payload={"counts": _counts},
+            step="l2",
+        )
 
     deep_briefing = _render(extra={"fast_classifier": fast_verdict})
     user_prompt = build_user_prompt(deep_briefing)
