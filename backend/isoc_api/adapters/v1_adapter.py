@@ -424,6 +424,29 @@ async def get_oat_detections(
         return items[:top]
 
 
+async def get_endpoint_details(
+    endpoint_name: str,
+    *,
+    region: str | None = None,
+    api_key: Any = None,
+    top: int = 10,
+) -> list[dict]:
+    """GET Endpoint Inventory records for a host (v3.0 `/eiqs/endpoints`), scoped by the
+    `TMV1-Query: endpointName eq '<host>'` header. Returns `items[]` (usually one).
+
+    NOTE: this collection carries NO device risk/criticality/exposure score, unlike
+    Microsoft Defender's machine object (riskScore / exposureLevel / deviceValue). Trend's
+    per-device risk lives in ASRM / CREM, a separate API surface. Only status/coverage
+    signals (eppAgent / edrSensor status, isolationStatus, last-connected) are here, so
+    the caller documents a reduced surface rather than faking a criticality.
+    """
+    headers = {"TMV1-Query": f"endpointName eq '{endpoint_name}'"}
+    async with _client(region=region, api_key=api_key) as c:
+        resp = await c.get("v3.0/eiqs/endpoints", params={"top": top}, headers=headers)
+        data = await _raise_for(resp)
+        return data.get("items", []) if isinstance(data, dict) else []
+
+
 async def get_endpoint_activity(
     tmv1_query: str,
     *,

@@ -48,6 +48,8 @@ def render(
     entities: list[dict] | None = None,
     cluster: dict | None = None,
     ms_reputation: dict | None = None,
+    ms_endpoint: dict | None = None,
+    ms_identity: dict | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append("# Pre-synthesis briefing")
@@ -488,6 +490,64 @@ def render(
                 f"org_prevalence={stats.get('organizationPrevalence', '?')}"
                 f"{_custom_note(ip.get('custom_indicator'))}"
             )
+        lines.append("")
+
+    # Endpoint detail (ADR-0009 PR-2)
+    if ms_endpoint:
+        e = ms_endpoint
+        lines.append("## Endpoint")
+        if e.get("provider") == "microsoft_defender":
+            lines.append(
+                f"- `{e.get('hostname') or '?'}` ({e.get('os') or '?'} {e.get('os_version') or ''}): "
+                f"risk_score={e.get('risk_score') or '?'}, exposure={e.get('exposure_level') or '?'}, "
+                f"device_value={e.get('device_value') or '?'}, health={e.get('health') or '?'}, "
+                f"last_seen={e.get('last_seen') or '?'}, last_ip={e.get('last_ip') or '?'}"
+            )
+        else:
+            lines.append(
+                f"- `{e.get('hostname') or '?'}` ({e.get('os') or '?'} {e.get('os_version') or ''}): "
+                f"epp={e.get('epp_status') or '?'}, edr={e.get('edr_connectivity') or '?'}, "
+                f"isolation={e.get('isolation_status') or '?'}, last_ip={e.get('last_ip') or '?'}, "
+                f"last_user={e.get('last_user') or '?'} (Vision One exposes no device risk score)"
+            )
+        lines.append("")
+
+    # Identity, Entra (ADR-0009 PR-3)
+    if ms_identity:
+        p = ms_identity.get("profile") or {}
+        r = ms_identity.get("risk") or {}
+        mfa = ms_identity.get("mfa") or {}
+        mgr = p.get("manager") or {}
+        methods = mfa.get("methodsRegistered") or []
+        lines.append("## Identity (Entra)")
+        lines.append(
+            f"- `{p.get('userPrincipalName') or ms_identity.get('user') or '?'}` "
+            f"({p.get('displayName') or '?'}): dept={p.get('department') or '?'}, "
+            f"title={p.get('jobTitle') or '?'}, enabled={p.get('accountEnabled')}, "
+            f"manager={mgr.get('userPrincipalName') or '?'}"
+        )
+        lines.append(
+            f"- risk: level={r.get('riskLevel') or '?'}, state={r.get('riskState') or '?'}; "
+            f"MFA methods registered={len(methods)} "
+            f"({', '.join(methods) if methods else 'none'}); "
+            f"mfa_capable={mfa.get('isMfaCapable')}, admin={mfa.get('isAdmin')}"
+        )
+        dets = ms_identity.get("risk_detections") or []
+        if dets:
+            types = ", ".join(
+                sorted({str(d.get("riskEventType")) for d in dets if d.get("riskEventType")})
+            )
+            lines.append(f"- risk detections: {types}")
+        sis = ms_identity.get("sign_ins") or []
+        if sis:
+            locs = []
+            for s in sis[:5]:
+                loc = s.get("location") or {}
+                locs.append(
+                    f"{loc.get('city') or '?'}/{loc.get('countryOrRegion') or '?'}"
+                    f"@{s.get('ipAddress') or '?'}"
+                )
+            lines.append(f"- recent sign-ins ({len(sis)}): " + "; ".join(locs))
         lines.append("")
 
     lines.append("---")

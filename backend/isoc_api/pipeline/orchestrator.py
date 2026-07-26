@@ -1097,6 +1097,8 @@ async def _step_synthesis(
             entities=enrichment.get("entities") or [],
             cluster=enrichment.get("cluster"),
             ms_reputation=(enrichment.get("ms") or {}).get("reputation"),
+            ms_endpoint=(enrichment.get("ms") or {}).get("endpoint"),
+            ms_identity=(enrichment.get("ms") or {}).get("identity"),
         )
 
     # ── Tier 1: fast classifier ─────────────────────────────────────────
@@ -1232,16 +1234,24 @@ async def _step_synthesis(
     # Escalated-only by construction: short-circuited alerts already returned above.
     from . import prefetch
 
-    ms_rep = await prefetch.prefetch_ms_enrichment(incident)
-    if ms_rep is not None:
+    ms = await prefetch.prefetch_ms_enrichment(incident)
+    if ms is not None:
         enrichment = incident.enrichment or enrichment  # refresh local binding for _render
-        _counts = {k: len(ms_rep.get(k) or []) for k in ("files", "domains", "ips")}
+        _parts: list[str] = []
+        _rep = ms.get("reputation") or {}
+        _n = sum(len(_rep.get(k) or []) for k in ("files", "domains", "ips"))
+        if _n:
+            _parts.append(f"{_n} indicator(s)")
+        if ms.get("endpoint"):
+            _parts.append("endpoint")
+        if ms.get("identity"):
+            _parts.append("identity")
         await _emit(
             session,
             incident,
             "ms_autoenrich",
-            display=f"Pre-L2 Microsoft reputation enriched ({sum(_counts.values())} indicator(s))",
-            payload={"counts": _counts},
+            display="Pre-L2 Microsoft enrichment: " + (", ".join(_parts) or "none"),
+            payload={"slices": [k for k in ("reputation", "endpoint", "identity") if ms.get(k)]},
             step="l2",
         )
 

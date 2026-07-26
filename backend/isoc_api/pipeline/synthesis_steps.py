@@ -77,6 +77,8 @@ class SynthCtx:
             deobfuscation=self.enrichment.get("deobfuscation"),
             v1_enrichment=self.enrichment.get("v1"),
             ms_reputation=(self.enrichment.get("ms") or {}).get("reputation"),
+            ms_endpoint=(self.enrichment.get("ms") or {}).get("endpoint"),
+            ms_identity=(self.enrichment.get("ms") or {}).get("identity"),
         )
 
 
