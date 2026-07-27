@@ -23,7 +23,7 @@
     "react-markdown": "9.0.1",
     "remark-gfm": "4.0.1",
     "zod": "3.24.1",
-    "@tanstack/react-query": "5.101.2",
+    "@tanstack/react-query": "5.101.4",
     "react-grid-layout": "1.5.2",
     "react-resizable": "4.0.2",
     "tinymce": "^7.6.0",
@@ -38,7 +38,7 @@
     "typescript": "5.7.2",
     "tailwindcss": "3.4.17",
     "@tailwindcss/typography": "0.5.20",
-    "autoprefixer": "10.5.3",
+    "autoprefixer": "10.5.4",
     "eslint": "8.57.1",
     "eslint-config-next": "15.5.18"
   },
