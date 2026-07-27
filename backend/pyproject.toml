@@ -9,7 +9,7 @@ requires-python = ">=3.11,<3.14"
 
 dependencies = [
     # Web
-    "fastapi==0.139.0",
+    "fastapi==0.140.0",
     "uvicorn[standard]==0.51.0",
     "python-multipart==0.0.32",
     "websockets==14.1",
@@ -33,7 +33,7 @@ dependencies = [
     "qdrant-client==1.18.0",
 
     # LLM
-    "openai==2.44.0",              # used to talk to LiteLLM (OpenAI-compatible)
+    "openai==2.48.0",              # used to talk to LiteLLM (OpenAI-compatible)
     "tiktoken==0.13.0",             # token counting for budget tracking
 
     # Agentic substrate (F8) — StateGraph orchestration + checkpointing.
@@ -71,7 +71,7 @@ dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==6.0.0",
-    "ruff==0.15.21",
+    "ruff==0.16.0",
     "mypy==1.13.0",
     "httpx==0.28.1",
 ]
