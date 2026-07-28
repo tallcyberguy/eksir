@@ -12,7 +12,7 @@
     "postinstall": "node -e \"const fs=require('fs');fs.existsSync('node_modules/tinymce')&&fs.cpSync('node_modules/tinymce','public/tinymce',{recursive:true})\""
   },
   "dependencies": {
-    "next": "15.5.18",
+    "next": "15.5.21",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "lucide-react": "0.469.0",
