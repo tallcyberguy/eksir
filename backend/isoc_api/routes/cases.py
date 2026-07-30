@@ -17,6 +17,7 @@ from sqlalchemy.orm import aliased
 from .. import audit, mentions, notify
 from ..adapters import defender_adapter, entity_store, integration_store, store_adapter, v1_adapter
 from ..auth.deps import current_user, require_admin, require_analyst
+from ..auth.permissions import missing_action_permissions, resolve_permissions
 from ..auth.tenancy import (
     TenantScope,
     current_tenant_scope,
@@ -1521,6 +1522,26 @@ async def approve_incident(
 
     if body.notes:
         inc.analyst_notes = body.notes
+
+    # L1/L2 gate: any analyst may sign off a verdict and run read-only actions,
+    # but only L2 (or admin) may execute CRITICAL response actions (isolate host,
+    # disable user, blocklist, scan, collect). Fail closed BEFORE anything runs:
+    # if the analyst checked a critical action their role doesn't grant, 403 and
+    # commit nothing. The 403 is the signal to escalate to an L2.
+    checked_ids = set(body.approve_action_ids or [])
+    checked_kinds = {
+        a.get("kind")
+        for a in (enrichment.get("proposed_actions") or [])
+        if a.get("id") in checked_ids
+    }
+    missing = missing_action_permissions(checked_kinds, await resolve_permissions(user, session))
+    if missing:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "your role cannot run these response actions (missing "
+            f"{', '.join(sorted(missing))}); escalate to an L2 analyst.",
+        )
+
     executed = await _run_proposed_actions(session, inc, enrichment, body.approve_action_ids, user)
     # 'Create case' nudge: if the analyst kept it checked, open a draft customer
     # case (idempotent — one per incident) so the customer notification isn't
