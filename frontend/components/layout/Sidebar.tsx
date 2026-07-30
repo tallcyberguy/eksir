@@ -10,8 +10,10 @@ import {
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LiveQueueBadge } from "@/components/layout/LiveQueueBadge";
+import useSWR from "@/lib/swr-shim";
+import { api } from "@/lib/api";
 
-type Item = { label: string; href: string; icon: any; section: "ops"|"response"|"settings" };
+type Item = { label: string; href: string; icon: any; section: "ops"|"response"|"settings"; adminOnly?: boolean };
 
 const NAV: Item[] = [
   { section: "ops",      label: "Dashboard",   href: "/",            icon: LayoutDashboard },
@@ -32,7 +34,7 @@ const NAV: Item[] = [
   { section: "response", label: "Team Analytics", href: "/analytics", icon: Trophy },
   { section: "response", label: "Reports",     href: "/reports",     icon: BarChart3 },
   { section: "settings", label: "Audit Log",   href: "/audit",       icon: ScrollText },
-  { section: "settings", label: "Administration", href: "/admin",    icon: Wrench },
+  { section: "settings", label: "Administration", href: "/admin",    icon: Wrench, adminOnly: true },
 ];
 
 function Group({ title, items, pathname }:{title:string; items:Item[]; pathname:string}) {
@@ -70,6 +72,11 @@ function Group({ title, items, pathname }:{title:string; items:Item[]; pathname:
 
 export function Sidebar() {
   const pathname = usePathname();
+  // Hide admin-only nav for non-admins. Cosmetic only: the backend still
+  // enforces every admin route; this just avoids linking to dead 403 pages.
+  const { data: me } = useSWR("me", () => api.me());
+  const isAdmin = me?.role === "admin";
+  const visible = NAV.filter(n => !n.adminOnly || isAdmin);
   return (
     <aside className="w-64 shrink-0 border-r border-line bg-base/80 backdrop-blur min-h-screen">
       <div className="px-5 py-5 flex items-center gap-2">
@@ -81,9 +88,9 @@ export function Sidebar() {
           <div className="text-[10px] text-muted">Security Operations</div>
         </div>
       </div>
-      <Group title="Threat Ops" items={NAV.filter(n => n.section==="ops")}      pathname={pathname}/>
-      <Group title="Response"   items={NAV.filter(n => n.section==="response")} pathname={pathname}/>
-      <Group title="Settings"   items={NAV.filter(n => n.section==="settings")} pathname={pathname}/>
+      <Group title="Threat Ops" items={visible.filter(n => n.section==="ops")}      pathname={pathname}/>
+      <Group title="Response"   items={visible.filter(n => n.section==="response")} pathname={pathname}/>
+      <Group title="Settings"   items={visible.filter(n => n.section==="settings")} pathname={pathname}/>
       <div className="mt-4 px-4 pb-4 border-t border-line/40 pt-4">
         <ThemeToggle/>
       </div>
