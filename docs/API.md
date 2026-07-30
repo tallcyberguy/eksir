@@ -17,6 +17,8 @@ Auth: Bearer JWT (`Authorization: Bearer <token>`) except for `/v1/ingest`
 POST   /api/v1/auth/login              { email, password }            → { token, user }
 POST   /api/v1/auth/refresh                                            → { token }
 GET    /api/v1/auth/me                                                 → { user, role }
+POST   /api/v1/auth/change-password    { current_password,             → { token, user }  (self-service;
+                                         new_password }                    revokes other sessions, keeps this one)
 POST   /api/v1/auth/logout                                             → 204
 ```
 
@@ -162,8 +164,11 @@ GET    /api/v1/forensics/jobs/{job_id}/report.md                       → analy
 
 ```
 GET    /api/v1/admin/users
-POST   /api/v1/admin/users              { email, role, password }
-PATCH  /api/v1/admin/users/{id}
+POST   /api/v1/admin/users              { email, role, password?,      → user + temp_password (once, when
+                                          full_name? }                     password omitted; also emailed)
+PATCH  /api/v1/admin/users/{id}         { role?, status?, full_name? }  → user  (enable/disable via status)
+POST   /api/v1/admin/users/{id}/reset-password                         → { temp_password }  (once; also emailed;
+                                                                            revokes the user's sessions)
 DELETE /api/v1/admin/users/{id}
 
 GET    /api/v1/admin/webhook-sources

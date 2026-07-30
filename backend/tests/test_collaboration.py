@@ -108,3 +108,78 @@ def test_mention_email_html_escapes_user_content():
 def test_mention_email_html_omits_link_when_no_url():
     html = mention_email_html(author="A", case_number="CASE-2", preview="hi", url="")
     assert "href=" not in html
+
+
+# ── notify.assignment_email_html (single + summary + escaping) ──────────────
+def test_assignment_email_html_single_escapes():
+    html = notify.assignment_email_html(
+        actor="Al <b>ice</b>",
+        url="http://localhost/incidents/abc",
+        case_number="CASE-9",
+        title="Suspicious <script>login</script>",
+    )
+    assert "<b>ice</b>" not in html
+    assert "Al &lt;b&gt;ice&lt;/b&gt;" in html
+    assert "&lt;script&gt;" in html  # title escaped, not rendered as markup
+    assert "CASE-9" in html
+    assert 'href="http://localhost/incidents/abc"' in html
+    assert "assigned an incident to you" in html
+
+
+def test_assignment_email_html_summary():
+    html = notify.assignment_email_html(
+        actor="Mgr",
+        url="http://localhost/incidents",
+        count=3,
+        case_numbers=["CASE-1", "CASE-2", "CASE-3"],
+    )
+    assert "assigned 3 incidents to you" in html
+    assert "CASE-2" in html
+    assert 'href="http://localhost/incidents"' in html
+
+
+def test_assignment_email_html_summary_of_one_still_names_case():
+    # A bulk payload of exactly one (count=1) must still render the case number
+    # and use singular grammar, not fall back to a generic "an incident".
+    html = notify.assignment_email_html(
+        actor="Mgr", url="http://localhost/incidents", count=1, case_numbers=["INC-1"]
+    )
+    assert "INC-1" in html
+    assert "assigned 1 incident to you" in html
+    assert "1 incidents" not in html  # singular, not plural
+
+
+def test_assignment_email_html_omits_link_when_no_url():
+    html = notify.assignment_email_html(actor="X", url="", case_number="CASE-5")
+    assert "href=" not in html
+
+
+# ── notify.credentials_email_html (escaping + kind + link) ──────────────────
+def test_credentials_email_html_escapes_and_includes_password():
+    html = notify.credentials_email_html(
+        full_name="Ada <b>L</b>",
+        email="ada@example.com",
+        temp_password="p@ss<w0rd>",  # pragma: allowlist secret
+        login_url="http://localhost/login",
+        kind="invite",
+    )
+    # user-controlled values must be escaped, never rendered as markup
+    assert "<b>L</b>" not in html
+    assert "Ada &lt;b&gt;L&lt;/b&gt;" in html
+    assert "p@ss&lt;w0rd&gt;" in html
+    assert "ada@example.com" in html
+    assert 'href="http://localhost/login"' in html
+    assert "Welcome to EKSIR" in html
+
+
+def test_credentials_email_html_reset_kind_wording():
+    html = notify.credentials_email_html(
+        full_name="",
+        email="x@y.z",
+        temp_password="abc123",  # pragma: allowlist secret
+        login_url="",
+        kind="reset",
+    )
+    assert "reset" in html.lower()
+    assert "Welcome to EKSIR" not in html
+    assert "href=" not in html  # no button when login_url is empty

@@ -14,7 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import audit
 from ..auth.deps import current_user
 from ..auth.mfa import generate_secret, provisioning_uri, qr_data_uri, verify_code
-from ..auth.security import decode_token, issue_mfa_challenge, issue_token, verify_password
+from ..auth.security import (
+    decode_token,
+    hash_password,
+    issue_mfa_challenge,
+    issue_token,
+    verify_password,
+)
 from ..auth.tenancy import resolve_tenant_scope
 from ..db.enums import UserStatus
 from ..db.models import Tenant, User
@@ -27,6 +33,7 @@ from ..schemas import (
     MfaCodeRequest,
     MfaEnrollResponse,
     MfaLoginRequest,
+    PasswordChange,
     TokenResponse,
     UserOut,
 )
@@ -239,6 +246,41 @@ async def mfa_disable(
 @router.get("/me", response_model=UserOut)
 async def me(user: Annotated[User, Depends(current_user)]) -> UserOut:
     return UserOut.model_validate(user)
+
+
+@router.post("/change-password", response_model=TokenResponse)
+async def change_password(
+    body: PasswordChange,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(current_user)],
+) -> TokenResponse:
+    """Self-service password change. Verifies the current password, sets the new
+    one, and bumps token_version to revoke every OTHER outstanding session, then
+    re-issues a fresh token so THIS session keeps working."""
+    if not verify_password(body.current_password, user.password_hash):
+        await audit.log(
+            session,
+            user_id=user.id,
+            action="auth.password_change_failed",
+            target_type="user",
+            target_id=user.id,
+        )
+        await session.commit()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "current password is incorrect")
+    if verify_password(body.new_password, user.password_hash):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "new password must differ from the current one"
+        )
+    user.password_hash = hash_password(body.new_password)
+    user.token_version += 1
+    await audit.log(
+        session,
+        user_id=user.id,
+        action="auth.password_changed",
+        target_type="user",
+        target_id=user.id,
+    )
+    return _issue_full_login(user)
 
 
 @router.post("/logout")

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldCheck, ShieldAlert, KeyRound, Copy, Check } from "lucide-react";
-import { api } from "@/lib/api";
+import { ShieldCheck, ShieldAlert, KeyRound, Copy, Check, Lock } from "lucide-react";
+import { api, setToken } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +66,10 @@ export default function SecurityPage() {
   return (
     <div className="max-w-2xl">
       <h1 className="text-lg font-semibold text-text mb-1">Security</h1>
-      <p className="text-sm text-muted mb-6">Manage two-factor authentication for your account.</p>
+      <p className="text-sm text-muted mb-6">Manage your password and two-factor authentication.</p>
+
+      <ChangePassword />
+
 
       <div className="panel p-6">
         <div className="flex items-center gap-2 mb-4">
@@ -158,6 +161,67 @@ export default function SecurityPage() {
         {err && <div className="mt-4 text-sm text-danger">{err}</div>}
         {msg && <div className="mt-4 text-sm text-positive">{msg}</div>}
       </div>
+    </div>
+  );
+}
+
+function ChangePassword() {
+  const [cur, setCur] = useState("");
+  const [next, setNext] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const tooShort = next.length > 0 && next.length < 10;
+  const mismatch = confirmPw.length > 0 && next !== confirmPw;
+  const canSubmit = cur.length > 0 && next.length >= 10 && next === confirmPw && !busy;
+
+  async function submit() {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      // The server revokes every other session and returns a fresh token for
+      // this one, so persist it to stay signed in.
+      const res = await api.changePassword(cur, next);
+      setToken(res.token);
+      setCur(""); setNext(""); setConfirmPw("");
+      setMsg("Password changed. Other sessions have been signed out.");
+    } catch (e: any) {
+      setErr(e?.message || "Could not change password.");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="panel p-6 mb-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Lock size={18} className="text-muted"/>
+        <div className="text-sm font-medium text-text">Password</div>
+      </div>
+      <p className="text-sm text-muted mb-4">Change your sign-in password. You'll stay signed in here.</p>
+      <div className="space-y-3 max-w-sm">
+        <PwField label="Current password" v={cur} on={setCur}/>
+        <PwField label="New password" v={next} on={setNext} hint="≥ 10 characters"/>
+        <PwField label="Confirm new password" v={confirmPw} on={setConfirmPw}/>
+      </div>
+      {tooShort && <div className="mt-2 text-[11px] text-danger">New password must be at least 10 characters.</div>}
+      {mismatch && <div className="mt-2 text-[11px] text-danger">Passwords don&apos;t match.</div>}
+      <button onClick={submit} disabled={!canSubmit}
+        className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm bg-accent/10 border border-accent/40 text-accent hover:bg-accent/20 disabled:opacity-40">
+        <KeyRound size={14}/> {busy ? "Changing…" : "Change password"}
+      </button>
+      {err && <div className="mt-3 text-sm text-danger">{err}</div>}
+      {msg && <div className="mt-3 text-sm text-positive">{msg}</div>}
+    </div>
+  );
+}
+
+function PwField({ label, v, on, hint }: { label: string; v: string; on: (s: string) => void; hint?: string }) {
+  return (
+    <div>
+      <label className="block text-[10px] tracking-[0.18em] text-muted uppercase mb-1">{label}</label>
+      <input type="password" value={v} autoComplete="off" onChange={e => on(e.target.value)}
+        className="w-full bg-base border border-line rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-accent/60"/>
+      {hint && <div className="text-[10px] text-muted mt-1">{hint}</div>}
     </div>
   );
 }

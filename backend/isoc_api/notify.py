@@ -43,6 +43,97 @@ def mention_email_html(*, author: str, case_number: str, preview: str, url: str)
     )
 
 
+def assignment_email_html(
+    *,
+    actor: str,
+    url: str,
+    case_number: str | None = None,
+    title: str | None = None,
+    count: int | None = None,
+    case_numbers: list[str] | None = None,
+) -> str:
+    """Email body telling a user they were assigned incident(s). Two shapes: a
+    single assignment (case_number + title) or a bulk summary (count +
+    case_numbers). Same discipline as mention_email_html: inline styles, every
+    interpolated value HTML-escaped, no template autoescape. Pure, unit-tested."""
+    a = _html.escape(actor or "A teammate")
+    u = _html.escape(url or "", quote=True)
+    box = "background:#0E2044;border-left:3px solid #00D4FF;padding:12px 14px;border-radius:4px;font-size:14px;color:#E6EDF7;"
+    # `count` present => bulk-summary shape (its magnitude may be 1); absent => single.
+    if count is not None:
+        n = int(count)
+        heading = f"{a} assigned {n} incident{'s' if n != 1 else ''} to you"
+        nums = ", ".join(_html.escape(c) for c in (case_numbers or [])[:10])
+        block = f'<div style="{box}">{nums}</div>' if nums else ""
+        cta = "Review the incidents"
+    else:
+        cn = _html.escape(case_number or "an incident")
+        ti = _html.escape(title or "")
+        heading = f"{a} assigned an incident to you"
+        detail = f'<div style="color:#A6B0CF;margin-top:4px;">{ti}</div>' if ti else ""
+        block = f'<div style="{box}"><b>{cn}</b>{detail}</div>'
+        cta = "View the incident"
+    link = (
+        f'<p style="margin:16px 0 0;"><a href="{u}" style="color:#00D4FF;">{cta} &rarr;</a></p>'
+        if u
+        else ""
+    )
+    return (
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;'
+        'background:#07111F;color:#E6EDF7;padding:24px;border-radius:8px;max-width:560px;">'
+        '<div style="font-weight:700;letter-spacing:1.5px;color:#00D4FF;">&#x2B22; EKSIR &middot; SOC</div>'
+        f'<h2 style="margin:12px 0 10px;font-size:18px;color:#E6EDF7;">{heading}</h2>'
+        f"{block}{link}"
+        "</div>"
+    )
+
+
+def credentials_email_html(
+    *, full_name: str, email: str, temp_password: str, login_url: str, kind: str = "invite"
+) -> str:
+    """Email body delivering a user's sign-in credentials. `kind="invite"` for a
+    brand-new account, `kind="reset"` for an admin password reset. Same discipline
+    as mention_email_html: inline styles, every interpolated value HTML-escaped,
+    no template autoescape. Pure, unit-tested."""
+    name = _html.escape(full_name or email or "there")
+    em = _html.escape(email or "")
+    pw = _html.escape(temp_password or "")
+    u = _html.escape(login_url or "", quote=True)
+    heading = "Your EKSIR account is ready" if kind == "reset" else "Welcome to EKSIR"
+    lead = (
+        "Your password has been reset by an administrator. Use the temporary "
+        "password below to sign in, then change it from your account settings."
+        if kind == "reset"
+        else "An account has been created for you. Use the temporary password "
+        "below to sign in, then change it from your account settings."
+    )
+    button = (
+        f'<p style="margin:18px 0 0;"><a href="{u}" '
+        'style="display:inline-block;background:#00D4FF;color:#07111F;font-weight:700;'
+        'text-decoration:none;padding:10px 18px;border-radius:6px;">Sign in &rarr;</a></p>'
+        if u
+        else ""
+    )
+    return (
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;'
+        'background:#07111F;color:#E6EDF7;padding:24px;border-radius:8px;max-width:560px;">'
+        '<div style="font-weight:700;letter-spacing:1.5px;color:#00D4FF;">&#x2B22; EKSIR &middot; SOC</div>'
+        f'<h2 style="margin:12px 0 6px;font-size:18px;color:#E6EDF7;">{heading}</h2>'
+        f'<p style="margin:0 0 12px;color:#A6B0CF;font-size:14px;">Hi {name}, {lead}</p>'
+        '<table style="border-collapse:collapse;font-size:14px;margin:6px 0;">'
+        '<tr><td style="padding:4px 12px 4px 0;color:#A6B0CF;">Email</td>'
+        f'<td style="padding:4px 0;color:#E6EDF7;"><b>{em}</b></td></tr>'
+        '<tr><td style="padding:4px 12px 4px 0;color:#A6B0CF;">Temporary password</td>'
+        '<td style="padding:4px 0;"><code style="background:#0E2044;border:1px solid #1d3a6b;'
+        f'padding:2px 8px;border-radius:4px;color:#E6EDF7;">{pw}</code></td></tr>'
+        "</table>"
+        '<p style="margin:12px 0 0;color:#7C8AAF;font-size:12px;">'
+        "For your security, change this password right after signing in.</p>"
+        f"{button}"
+        "</div>"
+    )
+
+
 def _as_uuid(value: uuid.UUID | str) -> uuid.UUID:
     return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
 
