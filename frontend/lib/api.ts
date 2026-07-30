@@ -265,6 +265,13 @@ export const api = {
       request<any>("/auth/mfa/disable", { method: "POST", body: JSON.stringify({ code }) }),
   },
   me: () => request<any>("/auth/me"),
+  // Self-service password change. Returns a fresh { token, user }: the server
+  // revokes every OTHER session but keeps this one alive, so swap the stored token.
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ token: string; user: any }>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password, new_password }),
+    }),
 
   // Dashboard layout (drag-drop) — hierarchy: user override > tenant default > built-in
   dashboardLayout: {
@@ -798,8 +805,15 @@ export const api = {
   admin: {
     // Users
     listUsers: () => request<any[]>("/admin/users"),
-    createUser: (b: { email: string; password: string; role?: string; full_name?: string }) =>
+    // password omitted → the server generates a temp one and returns it once in
+    // `temp_password` (and emails it to the new user).
+    createUser: (b: { email: string; password?: string; role?: string; full_name?: string }) =>
       request<any>("/admin/users", { method: "POST", body: JSON.stringify(b) }),
+    updateUser: (id: string, b: { role?: string; status?: string; full_name?: string }) =>
+      request<any>(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(b) }),
+    // Returns { temp_password } once; also emails the new credentials to the user.
+    resetPassword: (id: string) =>
+      request<{ temp_password: string }>(`/admin/users/${id}/reset-password`, { method: "POST" }),
     deleteUser: (id: string) =>
       request<void>(`/admin/users/${id}`, { method: "DELETE" }),
 

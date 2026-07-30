@@ -290,6 +290,39 @@ async def send_assignment_email(ctx, payload: dict) -> dict:
     return {"sent": 1}
 
 
+async def send_credentials_email(ctx, payload: dict) -> dict:
+    """Email a user their sign-in credentials (new account or admin reset).
+
+    Runs in the worker so creating/resetting a user stays instant. Best-effort:
+    a no-op when mail isn't configured, so the admin still sees the temp password
+    once in the API response, so onboarding never depends on email delivery."""
+    if not mailer.is_configured():
+        return {"skipped": "mail not configured"}
+    email = (payload.get("email") or "").strip()
+    if not email:
+        return {"sent": 0}
+    kind = payload.get("kind") or "invite"
+    html_body = notify.credentials_email_html(
+        full_name=payload.get("full_name", ""),
+        email=email,
+        temp_password=payload.get("temp_password", ""),
+        login_url=payload.get("login_url", ""),
+        kind=kind,
+    )
+    subject = (
+        "Your EKSIR password has been reset"
+        if kind == "reset"
+        else "Your EKSIR account: sign-in details"
+    )
+    try:
+        await mailer.send_html_email(to=email, subject=subject, html_body=html_body)
+    except Exception as e:
+        logger.warning("credentials_email.failed", to=email, error=str(e))
+        return {"sent": 0}
+    logger.info("credentials_email.sent", kind=kind)
+    return {"sent": 1}
+
+
 # ── Pull ingest (scheduled console API poll → RECEIVED incident) ─────────
 _PULL_DEDUP_TTL = 7 * 24 * 3600  # seconds a (provider, external_id) claim lives
 
@@ -689,6 +722,7 @@ class WorkerSettings:
         report_generate,
         send_mention_emails,
         send_assignment_email,
+        send_credentials_email,
         pull_ingest,
         batch_import,
     ]

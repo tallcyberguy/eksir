@@ -152,3 +152,34 @@ def test_assignment_email_html_summary_of_one_still_names_case():
 def test_assignment_email_html_omits_link_when_no_url():
     html = notify.assignment_email_html(actor="X", url="", case_number="CASE-5")
     assert "href=" not in html
+
+
+# ── notify.credentials_email_html (escaping + kind + link) ──────────────────
+def test_credentials_email_html_escapes_and_includes_password():
+    html = notify.credentials_email_html(
+        full_name="Ada <b>L</b>",
+        email="ada@example.com",
+        temp_password="p@ss<w0rd>",  # pragma: allowlist secret
+        login_url="http://localhost/login",
+        kind="invite",
+    )
+    # user-controlled values must be escaped, never rendered as markup
+    assert "<b>L</b>" not in html
+    assert "Ada &lt;b&gt;L&lt;/b&gt;" in html
+    assert "p@ss&lt;w0rd&gt;" in html
+    assert "ada@example.com" in html
+    assert 'href="http://localhost/login"' in html
+    assert "Welcome to EKSIR" in html
+
+
+def test_credentials_email_html_reset_kind_wording():
+    html = notify.credentials_email_html(
+        full_name="",
+        email="x@y.z",
+        temp_password="abc123",  # pragma: allowlist secret
+        login_url="",
+        kind="reset",
+    )
+    assert "reset" in html.lower()
+    assert "Welcome to EKSIR" not in html
+    assert "href=" not in html  # no button when login_url is empty
