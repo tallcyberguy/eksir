@@ -16,6 +16,7 @@ const TABS = [
   { href: "/admin/sources",     label: "Sources" },
   { href: "/admin/autonomy",    label: "Autonomy" },
   { href: "/admin/costs",       label: "Costs" },
+  { href: "/admin/performance", label: "Performance" },
   { href: "/admin/settings",    label: "Settings" },
 ];
 

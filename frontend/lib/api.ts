@@ -978,6 +978,12 @@ export const api = {
       request<any>(`/costs/dashboard?window_days=${windowDays}`),
   },
 
+  // Container performance/health (admin), read via the read-only docker proxy.
+  performance: {
+    overview: () => request<{ docker_ok: boolean; reason?: string; containers: any[] }>(
+      "/performance/overview"),
+  },
+
   // SLA Tracking — per-severity resolution SLA
   sla: {
     dashboard: (windowDays: number) =>

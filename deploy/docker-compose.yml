@@ -104,6 +104,9 @@ services:
       # fail-closed weak-secret boot guard and the CORS allow-list (Stage 3a).
       ISOC_ENV:               ${ISOC_ENV:-dev}
       ISOC_PUBLIC_URL:        ${ISOC_PUBLIC_URL:-http://localhost}
+      # Admin Performance tab reads container stats through the read-only
+      # docker-socket-proxy (never the raw socket on this exposed service).
+      ISOC_DOCKER_PROXY_URL:  ${ISOC_DOCKER_PROXY_URL:-http://docker-socket-proxy:2375}
     volumes:
       # alert-memory-mcp is now vendored INTO the image (see backend/Dockerfile,
       # `COPY vendor/alert-memory-mcp …`). No host mount = self-contained image.
@@ -120,6 +123,11 @@ services:
     extra_hosts:
       # Allow `host.docker.internal` resolution on Linux too (no-op on macOS).
       - "host.docker.internal:host-gateway"
+    # `default` (isoc-default) for the app services + `docker_proxy` so ONLY the
+    # backend can reach the read-only docker-socket-proxy.
+    networks:
+      - default
+      - docker_proxy
     depends_on:
       postgres:
         condition: service_healthy
@@ -129,6 +137,29 @@ services:
         condition: service_started
       litellm:
         condition: service_started
+      docker-socket-proxy:
+        condition: service_started
+
+  # ── Docker socket proxy (read-only) ─────────────────────────────────────
+  # Exposes a GET/HEAD-only slice of the Docker Engine API so the admin
+  # Performance tab can read per-container stats WITHOUT mounting the raw socket
+  # on the internet-facing backend. POST=0 rejects every write verb; the socket
+  # is mounted read-only; no host port. It sits on its OWN network (docker_proxy)
+  # shared only with the backend, so other services (postgres/redis/qdrant/
+  # litellm/frontend) CANNOT reach it and read container env via inspect.
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1   # GET /containers/json, /containers/{id}/json, /stats
+      PING: 1
+      POST: 0         # read-only: reject all POST/write verbs
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    expose:
+      - "2375"
+    networks:
+      - docker_proxy
 
   # ── Background worker (ARQ) ─────────────────────────────────────────────
   worker:
@@ -291,4 +322,10 @@ networks:
     name: isoc-default
   isolated:
     name: isoc-isolated
+    internal: true
+  # Dedicated network for the read-only docker-socket-proxy: only the backend
+  # joins it, so no other service can reach the Docker Engine API. internal =
+  # no external connectivity (the proxy reaches the daemon via a volume, not net).
+  docker_proxy:
+    name: isoc-docker-proxy
     internal: true

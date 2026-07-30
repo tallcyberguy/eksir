@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # ── Identity ─────────────────────────────────────────────────────────
     isoc_domain: str = "localhost"
     isoc_public_url: str = "http://localhost"
+    # Read-only docker-socket-proxy URL for the admin Performance tab. Empty =
+    # container monitoring disabled (the endpoint fails soft). The backend never
+    # mounts the raw docker socket; it reads container stats through this proxy.
+    isoc_docker_proxy_url: str | None = None
     log_level: str = "INFO"
     # Deployment posture: "dev" (default) | "staging" | "prod". Controls the
     # fail-closed startup secret checks (weak secrets abort boot only when this
