@@ -257,6 +257,38 @@ class AssignIn(BaseModel):
     role_id: uuid.UUID
 
 
+@router.get("/users/{user_id}/roles")
+async def list_user_roles(
+    user_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _user: Annotated[User, Depends(require_permission("roles:read"))],
+) -> dict[str, Any]:
+    """The custom RBAC roles currently assigned to a user (for the admin UI). The
+    three coarse roles (admin/analyst/viewer) still live on `User.role`; these are
+    the additive, permission-bearing roles from the Roles tab."""
+    if await session.get(User, user_id) is None:
+        raise HTTPException(404, "user not found")
+    rows = (
+        await session.execute(
+            select(RBACRole.id, RBACRole.name, RBACRole.description, RBACRole.is_system)
+            .join(UserRole, UserRole.role_id == RBACRole.id)
+            .where(UserRole.user_id == user_id)
+            .order_by(RBACRole.name)
+        )
+    ).all()
+    return {
+        "roles": [
+            {
+                "id": str(r.id),
+                "name": r.name,
+                "description": r.description,
+                "is_system": r.is_system,
+            }
+            for r in rows
+        ]
+    }
+
+
 @router.post("/users/{user_id}/roles")
 async def assign_role(
     user_id: uuid.UUID,

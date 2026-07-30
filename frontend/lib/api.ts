@@ -1113,6 +1113,9 @@ export const api = {
       request<any>(`/rbac/users/${userId}/roles`, { method: "POST", body: JSON.stringify({ role_id: roleId }) }),
     removeUserRole: (userId: string, roleId: string) =>
       request<any>(`/rbac/users/${userId}/roles/${roleId}`, { method: "DELETE" }),
+    // Custom RBAC roles currently assigned to a user (for the admin users UI).
+    userRoles: (userId: string) =>
+      request<{ roles: { id: string; name: string; description: string | null; is_system: boolean }[] }>(`/rbac/users/${userId}/roles`),
   },
 
   // Autonomy guardrails (3.9) — recommendation policy editor (admin)
