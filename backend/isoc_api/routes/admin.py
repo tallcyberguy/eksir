@@ -241,6 +241,116 @@ async def delete_user(
     await session.delete(user)
 
 
+# ── User ↔ tenant memberships (user-centric, for the admin Users page) ──────
+# Tenant scope is what lets a non-admin analyst SEE customers/incidents: with no
+# membership, resolve_tenant_scope yields an empty scope ("sees nothing"). These
+# endpoints let an admin grant a user access to specific tenants from the Users
+# page (the tenant-centric /tenants/{id}/members endpoints still exist too).
+@router.get("/users/{user_id}/tenants")
+async def list_user_tenants(
+    user_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _admin: Annotated[User, Depends(require_admin)],
+) -> list[dict]:
+    if await session.get(User, user_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+    rows = (
+        await session.execute(
+            select(
+                UserTenantMembership.id,
+                UserTenantMembership.tenant_id,
+                UserTenantMembership.role,
+                Tenant.name,
+                Tenant.tier,
+            )
+            .join(Tenant, Tenant.id == UserTenantMembership.tenant_id)
+            .where(UserTenantMembership.user_id == user_id)
+            .order_by(Tenant.tier, Tenant.name)
+        )
+    ).all()
+    return [
+        {
+            "membership_id": str(mid),
+            "tenant_id": str(tid),
+            "role": str(role),
+            "tenant_name": name,
+            "tenant_tier": str(tier),
+        }
+        for mid, tid, role, name, tier in rows
+    ]
+
+
+class UserTenantIn(BaseModel):
+    tenant_id: uuid.UUID
+    role: Role = Role.ANALYST
+
+
+@router.post("/users/{user_id}/tenants", status_code=status.HTTP_201_CREATED)
+async def add_user_tenant(
+    user_id: uuid.UUID,
+    body: UserTenantIn,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    admin: Annotated[User, Depends(require_admin)],
+) -> dict:
+    if await session.get(User, user_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+    t = await session.get(Tenant, body.tenant_id)
+    if t is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "tenant not found")
+    existing = await session.scalar(
+        select(UserTenantMembership.id).where(
+            UserTenantMembership.user_id == user_id,
+            UserTenantMembership.tenant_id == body.tenant_id,
+        )
+    )
+    if existing:
+        raise HTTPException(status.HTTP_409_CONFLICT, "user is already a member of this tenant")
+    m = UserTenantMembership(user_id=user_id, tenant_id=body.tenant_id, role=body.role)
+    session.add(m)
+    await session.flush()
+    await audit.log(
+        session,
+        user_id=admin.id,
+        action="membership.create",
+        target_type="membership",
+        target_id=m.id,
+        tenant_id=t.id,
+        diff={"user_id": str(user_id), "tenant_name": t.name, "role": str(body.role)},
+    )
+    return {
+        "membership_id": str(m.id),
+        "tenant_id": str(t.id),
+        "tenant_name": t.name,
+        "role": str(body.role),
+    }
+
+
+@router.delete("/users/{user_id}/tenants/{tenant_id}", status_code=204)
+async def remove_user_tenant(
+    user_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    admin: Annotated[User, Depends(require_admin)],
+):
+    m = await session.scalar(
+        select(UserTenantMembership).where(
+            UserTenantMembership.user_id == user_id,
+            UserTenantMembership.tenant_id == tenant_id,
+        )
+    )
+    if m is not None:
+        await audit.log(
+            session,
+            user_id=admin.id,
+            action="membership.remove",
+            target_type="membership",
+            target_id=m.id,
+            tenant_id=tenant_id,
+            diff={"user_id": str(user_id)},
+        )
+        await session.delete(m)
+
+
 # ── Webhook sources ─────────────────────────────────────────────────────
 @router.get("/webhook-sources")
 async def list_webhook_sources(
