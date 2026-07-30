@@ -14,7 +14,7 @@ from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from .. import audit
+from .. import audit, notify
 from ..adapters import defender_adapter, entity_store, integration_store, store_adapter, v1_adapter
 from ..auth.deps import current_user, require_admin, require_analyst
 from ..auth.tenancy import (
@@ -24,7 +24,7 @@ from ..auth.tenancy import (
     require_in_scope,
     scope_clause_for_incidents,
 )
-from ..db.enums import CaseStatus, Role, Severity, Verdict
+from ..db.enums import CaseStatus, Role, Severity, UserStatus, Verdict
 from ..db.models import (
     CustomerCase,
     Entity,
@@ -38,6 +38,7 @@ from ..db.models import (
     User,
 )
 from ..db.session import get_session
+from ..logging_config import get_logger
 from ..pipeline import sla
 from ..queue import get_arq
 from ..schemas import (
@@ -50,8 +51,95 @@ from ..schemas import (
     IOCOut,
     TimelineEventOut,
 )
+from ..settings import settings
 
+logger = get_logger("isoc.cases")
 router = APIRouter()
+
+
+async def _notify_assignment(
+    session: AsyncSession,
+    arq: ArqRedis,
+    *,
+    inc: Incident,
+    assignee_id: uuid.UUID,
+    actor: User,
+) -> None:
+    """Notify a user that they were newly assigned an incident: one in-app
+    notification (added to the caller's transaction) plus a best-effort email via
+    the worker. The caller guarantees assignee_id is a real, changed, non-actor
+    assignee. Never raises, so a notification failure cannot fail the assignment.
+    """
+    assignee = await session.get(User, assignee_id)
+    if assignee is None or assignee.status != UserStatus.ACTIVE:
+        return
+    await notify.notify_users(
+        session,
+        [assignee_id],
+        kind="assignment",
+        title=f"Assigned to you: {inc.case_number}",
+        body=inc.title or None,
+        link=f"/incidents/{inc.id}",
+        actor_id=actor.id,
+    )
+    if not assignee.email:
+        return
+    try:
+        await arq.enqueue_job(
+            "send_assignment_email",
+            {
+                "to": assignee.email,
+                "actor": actor.full_name or actor.email,
+                "case_number": inc.case_number,
+                "title": inc.title or "",
+                "url": f"{settings.isoc_public_url.rstrip('/')}/incidents/{inc.id}",
+            },
+        )
+    except Exception as e:  # pragma: no cover - enqueue failure is non-fatal
+        logger.warning("assignment_email.enqueue_failed", error=str(e))
+
+
+async def _notify_bulk_assignment(
+    session: AsyncSession,
+    arq: ArqRedis,
+    *,
+    incidents: list[Incident],
+    assignee_id: uuid.UUID,
+    actor: User,
+) -> None:
+    """Bulk variant: one summary in-app notification + one summary email for a
+    batch of incidents newly assigned to the same user (avoids flooding the bell /
+    inbox with one message per incident). Never raises."""
+    assignee = await session.get(User, assignee_id)
+    if assignee is None or assignee.status != UserStatus.ACTIVE or not incidents:
+        return
+    n = len(incidents)
+    numbers = ", ".join(i.case_number for i in incidents[:5])
+    more = "" if n <= 5 else f" +{n - 5} more"
+    await notify.notify_users(
+        session,
+        [assignee_id],
+        kind="assignment",
+        title=f"Assigned to you: {n} incident{'s' if n != 1 else ''}",
+        body=f"{numbers}{more}",
+        link="/incidents",
+        actor_id=actor.id,
+    )
+    if not assignee.email:
+        return
+    try:
+        await arq.enqueue_job(
+            "send_assignment_email",
+            {
+                "to": assignee.email,
+                "actor": actor.full_name or actor.email,
+                "count": n,
+                "case_numbers": [i.case_number for i in incidents[:10]],
+                "url": f"{settings.isoc_public_url.rstrip('/')}/incidents",
+            },
+        )
+    except Exception as e:  # pragma: no cover - enqueue failure is non-fatal
+        logger.warning("assignment_email.enqueue_failed", error=str(e))
 
 
 @router.get("/customers")
@@ -239,6 +327,7 @@ async def assign_incident(
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(require_analyst)],
     scope: Annotated[TenantScope, Depends(current_tenant_scope)],
+    arq: Annotated[ArqRedis, Depends(get_arq)],
     body: AssignIn | None = None,
 ) -> dict[str, Any]:
     """Assign an incident (default: to self) and stamp the response-SLA anchor.
@@ -255,6 +344,7 @@ async def assign_incident(
     require_in_scope(inc.tenant_id, scope)
 
     target = body.assignee_id if (body and body.assignee_id) else user.id
+    prior = inc.assignee_id
     first_claim = inc.claimed_at is None
     inc.assignee_id = target
     if first_claim:
@@ -280,6 +370,9 @@ async def assign_incident(
         tenant_id=inc.tenant_id,
         diff={"assignee_id": str(target), "first_claim": first_claim},
     )
+    # Notify the new owner (skip self-assignment and no-op re-assignment).
+    if target != user.id and target != prior:
+        await _notify_assignment(session, arq, inc=inc, assignee_id=target, actor=user)
     await session.commit()
     return {
         "assignee_id": str(target),
@@ -327,12 +420,14 @@ async def patch_incident(
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(require_analyst)],
     scope: Annotated[TenantScope, Depends(current_tenant_scope)],
+    arq: Annotated[ArqRedis, Depends(get_arq)],
 ) -> IncidentDetail:
     inc = await session.get(Incident, incident_id)
     if not inc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "incident not found")
     require_in_scope(inc.tenant_id, scope)
 
+    prior_assignee = inc.assignee_id
     updates = body.model_dump(exclude_unset=True)
     for k, v in updates.items():
         setattr(inc, k, v)
@@ -380,6 +475,15 @@ async def patch_incident(
         tenant_id=inc.tenant_id,
         diff={"case_number": inc.case_number, "fields": updates},
     )
+    # Notify a newly-set owner (skip unassign, no-op, and self-assignment).
+    new_assignee = inc.assignee_id
+    if (
+        "assignee_id" in updates
+        and new_assignee
+        and new_assignee != prior_assignee
+        and new_assignee != user.id
+    ):
+        await _notify_assignment(session, arq, inc=inc, assignee_id=new_assignee, actor=user)
     return _detail_out(inc)
 
 
@@ -884,6 +988,7 @@ async def bulk_action(
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(require_analyst)],
     scope: Annotated[TenantScope, Depends(current_tenant_scope)],
+    arq: Annotated[ArqRedis, Depends(get_arq)],
     body: Annotated[dict, Body(...)],
 ) -> dict:
     """Body:
@@ -935,6 +1040,9 @@ async def bulk_action(
 
     affected: list[str] = []
     skipped: list[dict] = []
+    bulk_assigned: list[
+        Incident
+    ] = []  # incidents newly assigned to `value`, for one summary notice
     now = datetime.now(timezone.utc)
 
     for inc_id in parsed_ids:
@@ -1009,6 +1117,7 @@ async def bulk_action(
             affected.append(str(inc_id))
 
         elif action == "reassign":
+            prior_assignee = inc.assignee_id
             inc.assignee_id = value  # type: ignore[assignment]
             # First ownership stamps the response-SLA anchor (same as claim/assign);
             # a bulk unassign (value=None) leaves an existing claim intact.
@@ -1024,6 +1133,9 @@ async def bulk_action(
                     display=f"Bulk {label}",
                 )
             )
+            # Collect for one summary notice (skip self and no-op re-assignment).
+            if value is not None and value != user.id and prior_assignee != value:
+                bulk_assigned.append(inc)
             affected.append(str(inc_id))
 
     await audit.log(
@@ -1034,6 +1146,18 @@ async def bulk_action(
         target_id=user.id,  # no single target
         diff={"count": len(affected), "skipped": len(skipped), "ids": affected[:20]},
     )
+    if action == "reassign" and value is not None and value != user.id and bulk_assigned:
+        # A batch that newly-assigns exactly one incident is really a single
+        # assignment: route it through the single helper so the email names the
+        # case and the in-app notification links to that incident (not the list).
+        if len(bulk_assigned) == 1:
+            await _notify_assignment(
+                session, arq, inc=bulk_assigned[0], assignee_id=value, actor=user
+            )
+        else:
+            await _notify_bulk_assignment(
+                session, arq, incidents=bulk_assigned, assignee_id=value, actor=user
+            )
     await session.commit()
     return {"action": action, "affected": affected, "skipped": skipped}
 

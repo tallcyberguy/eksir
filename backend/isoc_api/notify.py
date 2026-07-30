@@ -43,6 +43,51 @@ def mention_email_html(*, author: str, case_number: str, preview: str, url: str)
     )
 
 
+def assignment_email_html(
+    *,
+    actor: str,
+    url: str,
+    case_number: str | None = None,
+    title: str | None = None,
+    count: int | None = None,
+    case_numbers: list[str] | None = None,
+) -> str:
+    """Email body telling a user they were assigned incident(s). Two shapes: a
+    single assignment (case_number + title) or a bulk summary (count +
+    case_numbers). Same discipline as mention_email_html: inline styles, every
+    interpolated value HTML-escaped, no template autoescape. Pure, unit-tested."""
+    a = _html.escape(actor or "A teammate")
+    u = _html.escape(url or "", quote=True)
+    box = "background:#0E2044;border-left:3px solid #00D4FF;padding:12px 14px;border-radius:4px;font-size:14px;color:#E6EDF7;"
+    # `count` present => bulk-summary shape (its magnitude may be 1); absent => single.
+    if count is not None:
+        n = int(count)
+        heading = f"{a} assigned {n} incident{'s' if n != 1 else ''} to you"
+        nums = ", ".join(_html.escape(c) for c in (case_numbers or [])[:10])
+        block = f'<div style="{box}">{nums}</div>' if nums else ""
+        cta = "Review the incidents"
+    else:
+        cn = _html.escape(case_number or "an incident")
+        ti = _html.escape(title or "")
+        heading = f"{a} assigned an incident to you"
+        detail = f'<div style="color:#A6B0CF;margin-top:4px;">{ti}</div>' if ti else ""
+        block = f'<div style="{box}"><b>{cn}</b>{detail}</div>'
+        cta = "View the incident"
+    link = (
+        f'<p style="margin:16px 0 0;"><a href="{u}" style="color:#00D4FF;">{cta} &rarr;</a></p>'
+        if u
+        else ""
+    )
+    return (
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;'
+        'background:#07111F;color:#E6EDF7;padding:24px;border-radius:8px;max-width:560px;">'
+        '<div style="font-weight:700;letter-spacing:1.5px;color:#00D4FF;">&#x2B22; EKSIR &middot; SOC</div>'
+        f'<h2 style="margin:12px 0 10px;font-size:18px;color:#E6EDF7;">{heading}</h2>'
+        f"{block}{link}"
+        "</div>"
+    )
+
+
 def _as_uuid(value: uuid.UUID | str) -> uuid.UUID:
     return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
 

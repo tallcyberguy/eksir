@@ -256,6 +256,40 @@ async def send_mention_emails(ctx, payload: dict) -> dict:
     return {"sent": sent}
 
 
+async def send_assignment_email(ctx, payload: dict) -> dict:
+    """Email a user that they were assigned incident(s): a single assignment or a
+    bulk summary (payload carries `count` + `case_numbers` for the latter).
+
+    Runs in the worker so assigning stays instant. Best-effort: a no-op when mail
+    isn't configured (the in-app notification is the reliable channel)."""
+    if not mailer.is_configured():
+        return {"skipped": "mail not configured"}
+    to = (payload.get("to") or "").strip()
+    if not to:
+        return {"sent": 0}
+    count = payload.get("count")
+    html_body = notify.assignment_email_html(
+        actor=payload.get("actor", ""),
+        url=payload.get("url", ""),
+        case_number=payload.get("case_number"),
+        title=payload.get("title"),
+        count=count,
+        case_numbers=payload.get("case_numbers"),
+    )
+    if count is not None:
+        n = int(count)
+        subject = f"You were assigned {n} incident{'s' if n != 1 else ''}"
+    else:
+        subject = f"You were assigned {payload.get('case_number') or 'an incident'}"
+    try:
+        await mailer.send_html_email(to=to, subject=subject, html_body=html_body)
+    except Exception as e:
+        logger.warning("assignment_email.failed", to=to, error=str(e))
+        return {"sent": 0}
+    logger.info("assignment_email.sent")
+    return {"sent": 1}
+
+
 # ── Pull ingest (scheduled console API poll → RECEIVED incident) ─────────
 _PULL_DEDUP_TTL = 7 * 24 * 3600  # seconds a (provider, external_id) claim lives
 
@@ -654,6 +688,7 @@ class WorkerSettings:
         threat_intel_sync,
         report_generate,
         send_mention_emails,
+        send_assignment_email,
         pull_ingest,
         batch_import,
     ]
