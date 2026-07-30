@@ -510,6 +510,7 @@ export default function IncidentDetail() {
           onApprove={approve}
           onReject={reject}
           onMessage={manager}
+          canApprove={me?.role === "admin" || me?.role === "analyst"}
         />
       </aside>
     </div>

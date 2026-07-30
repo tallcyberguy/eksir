@@ -24,11 +24,14 @@ type Props = {
   onApprove: (actionIds: string[], notes?: string) => Promise<void> | void;
   onReject: (reason: string, requeue: boolean) => Promise<void> | void;
   onMessage: (message: string) => Promise<void> | void;
+  // Viewers can see the proposal but cannot sign off (the backend gate is
+  // require_analyst). Defaults to true so existing callers are unaffected.
+  canApprove?: boolean;
 };
 
 /** Right-rail vertical progress line: every pipeline/persona stage with live
  * status + a per-stage summary, and inline Approve/Reject at the human gate. */
-export function ProgressRail({ events, incident, busy, onApprove, onReject, onMessage }: Props) {
+export function ProgressRail({ events, incident, busy, onApprove, onReject, onMessage, canApprove = true }: Props) {
   const stages = deriveStages(events, { includePending: true });
   const atGate = incident?.status === "awaiting_signoff";
   const stageData = incident?.enrichment?.stages || {};
@@ -49,7 +52,7 @@ export function ProgressRail({ events, incident, busy, onApprove, onReject, onMe
       </Panel>
 
       {atGate && (
-        <GatePanel incident={incident} busy={busy} onApprove={onApprove} onReject={onReject} onMessage={onMessage} />
+        <GatePanel incident={incident} busy={busy} onApprove={onApprove} onReject={onReject} onMessage={onMessage} canApprove={canApprove} />
       )}
     </div>
   );
@@ -114,7 +117,7 @@ function summarize(key: string, stages: any, incident: any): string | null {
 }
 
 // ── Human gate ──────────────────────────────────────────────────────────────
-function GatePanel({ incident, busy, onApprove, onReject, onMessage }: Omit<Props, "events">) {
+function GatePanel({ incident, busy, onApprove, onReject, onMessage, canApprove = true }: Omit<Props, "events">) {
   const proposal = incident?.enrichment?.proposal || {};
   const actions: any[] = incident?.enrichment?.proposed_actions || [];
   const chat: any[] = incident?.enrichment?.manager_chat || [];
@@ -197,6 +200,12 @@ function GatePanel({ incident, busy, onApprove, onReject, onMessage }: Omit<Prop
         </div>
       )}
 
+      {!canApprove ? (
+        <div className="mt-3 border-t border-line/40 pt-3 text-xs text-muted">
+          You have read-only access. An analyst must sign off on this proposal.
+        </div>
+      ) : (
+      <>
       {/* Talk to the manager — revise the proposal or re-task hunt/forensics */}
       <div className="mb-3 border-t border-line/40 pt-3">
         <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted mb-1.5">
@@ -280,6 +289,8 @@ function GatePanel({ incident, busy, onApprove, onReject, onMessage }: Omit<Prop
             </button>
           </div>
         </div>
+      )}
+      </>
       )}
     </Panel>
   );
