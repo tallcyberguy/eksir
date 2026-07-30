@@ -384,6 +384,18 @@ export const api = {
   getIncidentCluster: (id: string) => request<ClusterSummary | null>(`/incidents/${id}/cluster`),
   getLLMCalls: (id: string)      => request<any[]>(`/incidents/${id}/llm-calls`),
 
+  // Incident collaboration (feature 8 mirror): comments, @mentions, watchers.
+  incidentComments:        (id: string) => request<any[]>(`/incidents/${id}/comments`),
+  addIncidentComment:      (id: string, body: string) =>
+    request<any>(`/incidents/${id}/comments`, { method: "POST", body: JSON.stringify({ body }) }),
+  incidentMentionableUsers: (id: string) =>
+    request<{ id: string; full_name: string | null; email: string }[]>(`/incidents/${id}/mentionable-users`),
+  incidentWatchers:        (id: string) => request<any[]>(`/incidents/${id}/watchers`),
+  addIncidentWatcher:      (id: string, userId?: string) =>
+    request<any>(`/incidents/${id}/watchers`, { method: "POST", body: JSON.stringify({ user_id: userId }) }),
+  removeIncidentWatcher:   (id: string, userId: string) =>
+    request<void>(`/incidents/${id}/watchers/${userId}`, { method: "DELETE" }),
+
   // Entity list (search + pagination) — returns { items, total } via X-Total-Count.
   listEntities: (params: Record<string, string | number | boolean> = {}) =>
     listWithTotal<EntitySummary>("/entities", params),

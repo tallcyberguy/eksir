@@ -19,6 +19,7 @@ import { LLMCallsPanel } from "@/components/incidents/LLMCallsPanel";
 import { IncidentForensicsPanel } from "@/components/incidents/IncidentForensicsPanel";
 import { HuntPanel } from "@/components/incidents/HuntPanel";
 import { AttackPathPanel } from "@/components/incidents/AttackPathPanel";
+import { IncidentCollaboration } from "@/components/incidents/IncidentCollaboration";
 import { defang, severityPill, statusPill, verdictPill } from "@/lib/utils";
 import type { IncidentEntityLink, ClusterSummary } from "@/lib/api";
 import { Pencil, Check, X, FileText, UserPlus, UserCheck } from "lucide-react";
@@ -428,6 +429,7 @@ export default function IncidentDetail() {
           <EntitiesPanel entities={entities}/>
           <RelatedIncidentsPanel cluster={cluster}/>
           <SimilarCasesPanel enrichment={inc.enrichment}/>
+          <IncidentCollaboration incidentId={inc.id}/>
           </div>
 
           <div className="lg:col-span-3">

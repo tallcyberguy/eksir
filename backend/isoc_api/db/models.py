@@ -1315,3 +1315,45 @@ class CaseWatcher(Base, UUIDMixin, TimestampMixin):
     )
 
     __table_args__ = (UniqueConstraint("case_id", "user_id", name="uq_case_watcher"),)
+
+
+class IncidentComment(Base, UUIDMixin, TimestampMixin):
+    """Threaded comment on an incident (Feature 8, incident mirror of CaseComment).
+    Append-only child of the incident (CASCADE). `mentions` is the resolved list of
+    mentioned user-id strings, which also drives the notifications on create.
+    New table → auto-created on boot (no backfill).
+    """
+
+    __tablename__ = "incident_comments"
+
+    incident_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("incidents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    mentions: Mapped[list | None] = mapped_column(JSONB)  # list[str] of user ids
+
+
+class IncidentWatcher(Base, UUIDMixin, TimestampMixin):
+    """A user watching an incident: receives a notification on each new comment
+    (Feature 8, incident mirror of CaseWatcher). New table, auto-created on boot.
+    """
+
+    __tablename__ = "incident_watchers"
+
+    incident_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("incidents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    __table_args__ = (UniqueConstraint("incident_id", "user_id", name="uq_incident_watcher"),)
