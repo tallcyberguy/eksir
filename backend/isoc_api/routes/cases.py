@@ -14,7 +14,7 @@ from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from .. import audit, notify
+from .. import audit, mentions, notify
 from ..adapters import defender_adapter, entity_store, integration_store, store_adapter, v1_adapter
 from ..auth.deps import current_user, require_admin, require_analyst
 from ..auth.tenancy import (
@@ -31,7 +31,9 @@ from ..db.models import (
     Incident,
     IncidentCluster,
     IncidentClusterMember,
+    IncidentComment,
     IncidentEntity,
+    IncidentWatcher,
     IOCRecord,
     LLMCall,
     TimelineEvent,
@@ -1797,3 +1799,244 @@ async def purge_incident(
             f"Cannot purge — referenced by another row (likely a customer case): {e}",
         )
     return {"status": "purged", "id": str(incident_id), "case_number": case_number}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Incident collaboration (Feature 8 mirror): comments, @mentions, watchers
+#
+# Comments are append-only; @mentions + watchers drive in-app notifications
+# (notify.py / B1) and mention emails (reuses the send_mention_emails worker
+# job). Reads are viewer-visible (current_user + scope); writes require an
+# analyst. Mirrors routes/customer_cases.py, keyed on incidents.
+# ══════════════════════════════════════════════════════════════════════════
+
+
+async def _incident_in_scope(
+    session: AsyncSession, incident_id: uuid.UUID, scope: TenantScope
+) -> Incident:
+    inc = await session.get(Incident, incident_id)
+    if inc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "incident not found")
+    require_in_scope(inc.tenant_id, scope)
+    return inc
+
+
+async def _mentionable_users(session: AsyncSession) -> list[dict]:
+    """Active SOC users (the mention/watch roster). Internal staff, so the whole
+    active roster is mentionable regardless of tenant."""
+    rows = (
+        await session.execute(
+            select(User.id, User.full_name, User.email)
+            .where(User.status == UserStatus.ACTIVE)
+            .order_by(User.full_name, User.email)
+        )
+    ).all()
+    return [{"id": str(r.id), "full_name": r.full_name, "email": r.email} for r in rows]
+
+
+async def _incident_watcher_ids(session: AsyncSession, incident_id: uuid.UUID) -> list[str]:
+    rows = (
+        (
+            await session.execute(
+                select(IncidentWatcher.user_id).where(IncidentWatcher.incident_id == incident_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [str(u) for u in rows]
+
+
+async def _ensure_incident_watchers(
+    session: AsyncSession, incident_id: uuid.UUID, user_ids
+) -> None:
+    """Idempotently add watchers (dedup against existing rows + the unique key)."""
+    existing = set(await _incident_watcher_ids(session, incident_id))
+    for raw in user_ids:
+        uid = str(raw)
+        if uid and uid not in existing:
+            existing.add(uid)
+            session.add(IncidentWatcher(incident_id=incident_id, user_id=uuid.UUID(uid)))
+
+
+def _incident_comment_out(c: IncidentComment, full_name: str | None, email: str | None) -> dict:
+    return {
+        "id": str(c.id),
+        "body": c.body,
+        "mentions": c.mentions or [],
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "author": {"full_name": full_name, "email": email},
+    }
+
+
+@router.get("/{incident_id}/mentionable-users")
+async def incident_mentionable_users(
+    incident_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _user: Annotated[User, Depends(current_user)],
+    scope: Annotated[TenantScope, Depends(current_tenant_scope)],
+) -> list[dict]:
+    await _incident_in_scope(session, incident_id, scope)
+    return await _mentionable_users(session)
+
+
+@router.get("/{incident_id}/comments")
+async def list_incident_comments(
+    incident_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _user: Annotated[User, Depends(current_user)],
+    scope: Annotated[TenantScope, Depends(current_tenant_scope)],
+) -> list[dict]:
+    await _incident_in_scope(session, incident_id, scope)
+    rows = (
+        await session.execute(
+            select(IncidentComment, User.full_name, User.email)
+            .join(User, User.id == IncidentComment.author_id, isouter=True)
+            .where(IncidentComment.incident_id == incident_id)
+            .order_by(asc(IncidentComment.created_at))
+        )
+    ).all()
+    return [_incident_comment_out(c, fn, em) for c, fn, em in rows]
+
+
+@router.post("/{incident_id}/comments", status_code=status.HTTP_201_CREATED)
+async def add_incident_comment(
+    incident_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(require_analyst)],
+    scope: Annotated[TenantScope, Depends(current_tenant_scope)],
+    arq: Annotated[ArqRedis, Depends(get_arq)],
+    body: Annotated[str, Body(embed=True)],
+) -> dict:
+    """Post a comment on an incident. @mentions notify the named users in-app (and
+    auto-watch them) AND email each of them; existing watchers get a 'commented'
+    in-app notification. The author auto-watches."""
+    inc = await _incident_in_scope(session, incident_id, scope)
+    body = (body or "").strip()
+    if not body:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "comment body is required")
+
+    roster = await _mentionable_users(session)
+    mentioned = mentions.parse_mentions(body, roster)
+    existing_watchers = await _incident_watcher_ids(session, incident_id)  # before adding new ones
+
+    comment = IncidentComment(
+        incident_id=incident_id, author_id=user.id, body=body, mentions=mentioned or None
+    )
+    session.add(comment)
+    await _ensure_incident_watchers(session, incident_id, [str(user.id), *mentioned])
+
+    link = f"/incidents/{incident_id}"
+    who = user.full_name or user.email
+    preview = body[:140]
+    # Mentions are the high-signal notification.
+    await notify.notify_users(
+        session,
+        mentioned,
+        kind="mention",
+        title=f"{who} mentioned you on {inc.case_number}",
+        link=link,
+        body=preview,
+        actor_id=user.id,
+    )
+    # Email each mentioned user (best-effort, via the shared send_mention_emails job).
+    if mentioned:
+        id_to_email = {u["id"]: u["email"] for u in roster if u.get("email")}
+        recipients = [id_to_email[m] for m in mentioned if id_to_email.get(m)]
+        if recipients:
+            public = (settings.isoc_public_url or "").rstrip("/")
+            try:
+                await arq.enqueue_job(
+                    "send_mention_emails",
+                    {
+                        "to": recipients,
+                        "author": who,
+                        "case_number": inc.case_number,
+                        "url": f"{public}/incidents/{incident_id}" if public else "",
+                        "preview": preview,
+                        "subject": f"You were mentioned on {inc.case_number}",
+                    },
+                )
+            except Exception:
+                pass  # best-effort: never fail the comment on a queue hiccup
+
+    # Existing watchers (not just-mentioned, not the author) get a comment ping.
+    watch_only = [w for w in existing_watchers if w not in set(mentioned)]
+    await notify.notify_users(
+        session,
+        watch_only,
+        kind="comment",
+        title=f"{who} commented on {inc.case_number}",
+        link=link,
+        body=preview,
+        actor_id=user.id,
+    )
+    await audit.log(
+        session,
+        user_id=user.id,
+        action="incident.comment",
+        target_type="incident",
+        target_id=incident_id,
+        tenant_id=inc.tenant_id,
+        diff={"mentions": mentioned, "chars": len(body)},
+    )
+    await session.flush()
+    return _incident_comment_out(comment, user.full_name, user.email)
+
+
+@router.get("/{incident_id}/watchers")
+async def list_incident_watchers(
+    incident_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _user: Annotated[User, Depends(current_user)],
+    scope: Annotated[TenantScope, Depends(current_tenant_scope)],
+) -> list[dict]:
+    await _incident_in_scope(session, incident_id, scope)
+    rows = (
+        await session.execute(
+            select(IncidentWatcher.user_id, User.full_name, User.email)
+            .join(User, User.id == IncidentWatcher.user_id)
+            .where(IncidentWatcher.incident_id == incident_id)
+            .order_by(User.full_name, User.email)
+        )
+    ).all()
+    return [{"user_id": str(uid), "full_name": fn, "email": em} for uid, fn, em in rows]
+
+
+@router.post("/{incident_id}/watchers", status_code=status.HTTP_201_CREATED)
+async def add_incident_watcher(
+    incident_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(require_analyst)],
+    scope: Annotated[TenantScope, Depends(current_tenant_scope)],
+    user_id: Annotated[uuid.UUID | None, Body(embed=True)] = None,
+) -> dict:
+    """Watch the incident. Defaults to self; pass user_id to add a teammate."""
+    await _incident_in_scope(session, incident_id, scope)
+    target = user_id or user.id
+    if await session.get(User, target) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+    await _ensure_incident_watchers(session, incident_id, [str(target)])
+    return {"ok": True, "user_id": str(target)}
+
+
+@router.delete("/{incident_id}/watchers/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_incident_watcher(
+    incident_id: uuid.UUID,
+    user_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _user: Annotated[User, Depends(require_analyst)],
+    scope: Annotated[TenantScope, Depends(current_tenant_scope)],
+) -> Response:
+    await _incident_in_scope(session, incident_id, scope)
+    w = (
+        await session.execute(
+            select(IncidentWatcher).where(
+                IncidentWatcher.incident_id == incident_id,
+                IncidentWatcher.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if w is not None:
+        await session.delete(w)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
