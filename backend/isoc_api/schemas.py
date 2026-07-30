@@ -154,6 +154,9 @@ class IncidentSummary(BaseModel):
     assignee_id: uuid.UUID | None = None
     # Assignee display name (full_name or email); attached by the list route.
     assignee_name: str | None = None
+    # L1 → L2 escalation (escalated = escalated_at is set).
+    escalated_at: datetime | None = None
+    escalated_by_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
     closed_at: datetime | None = None
@@ -173,6 +176,7 @@ class IncidentDetail(IncidentSummary):
     analyst_notes: str | None = None
     verdict_reason: str | None = None
     handoff_note: str | None = None
+    escalation_note: str | None = None
     qdrant_alert_id: uuid.UUID | None = None
     # Response-SLA anchor: when an analyst first took ownership (claim/assign).
     claimed_at: datetime | None = None

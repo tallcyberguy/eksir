@@ -43,6 +43,7 @@ async def init_db() -> None:
     from .autonomy_backfill import seed_autonomy_defaults
     from .case_number_prefix_backfill import rename_case_number_prefixes
     from .customer_case_html_backfill import add_customer_case_html_columns
+    from .escalation_backfill import add_escalation_columns
     from .exclusions_autotune_backfill import add_exclusion_customer_scope
     from .handoff_note_backfill import add_handoff_note_column
     from .ingest_observability_backfill import add_ingest_observability_columns
@@ -112,6 +113,9 @@ async def init_db() -> None:
 
     # Investigation Queue (3.6): claimed_at / snoozed_until / snoozed_by_id.
     await add_queue_columns(_engine)
+
+    # L1 → L2 escalation: escalated_at / escalated_by_id / escalation_note.
+    await add_escalation_columns(_engine)
 
     # Per-source observability (#96): last_poll_ms / last_poll_count / total_ingested
     # on ingest_sources (the model gained them but #96 shipped no backfill).
