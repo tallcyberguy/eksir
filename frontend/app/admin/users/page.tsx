@@ -16,9 +16,11 @@ export default function UsersPage() {
   const { data: tenantsData } = useSWR("admin.tenants", () =>
     api.admin.listTenants().catch(() => [] as any[]));
   const users = data || [];
-  // Custom (non-system) RBAC roles are the assignable ones; the three coarse
-  // roles (admin/analyst/viewer) stay on the Role column, not here.
-  const customRoles = ((rolesData?.roles || []) as any[]).filter((r) => !r.is_system);
+  // Assignable RBAC roles = everything except the three coarse mirrors
+  // (admin/analyst/viewer live on the Role column). Includes custom roles AND
+  // seeded system roles like "L2 Analyst" (which promotes an analyst to L2).
+  const customRoles = ((rolesData?.roles || []) as any[]).filter(
+    (r) => !["admin", "analyst", "viewer"].includes(r.name));
   const allTenants = (tenantsData || []) as any[];
   const [form, setForm] = useState({ email: "", password: "", role: "analyst", full_name: "" });
   const [err, setErr] = useState<string | null>(null);

@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import audit
 from ..adapters import integration_store, v1_adapter
 from ..auth.deps import current_user
+from ..auth.permissions import require_permission
 from ..auth.tenancy import TenantScope, current_tenant_scope, require_in_scope
 from ..db.models import Incident, TimelineEvent, User
 from ..db.session import get_session
@@ -206,7 +207,7 @@ async def add_to_blocklist(
     incident_id: uuid.UUID,
     body: BlocklistRequest,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_user),
+    user=Depends(require_permission("actions:blocklist")),
     scope: TenantScope = Depends(current_tenant_scope),
 ):
     inc = await _get_incident(incident_id, session, scope)
@@ -244,7 +245,7 @@ async def isolate_endpoint(
     incident_id: uuid.UUID,
     body: IsolateRequest,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_user),
+    user=Depends(require_permission("actions:isolate")),
     scope: TenantScope = Depends(current_tenant_scope),
 ):
     inc = await _get_incident(incident_id, session, scope)
@@ -276,7 +277,7 @@ async def restore_endpoint(
     incident_id: uuid.UUID,
     body: RestoreRequest,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_user),
+    user=Depends(require_permission("actions:isolate")),
     scope: TenantScope = Depends(current_tenant_scope),
 ):
     inc = await _get_incident(incident_id, session, scope)
@@ -308,7 +309,7 @@ async def collect_file(
     incident_id: uuid.UUID,
     body: CollectFileRequest,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_user),
+    user=Depends(require_permission("actions:collect")),
     scope: TenantScope = Depends(current_tenant_scope),
 ):
     inc = await _get_incident(incident_id, session, scope)

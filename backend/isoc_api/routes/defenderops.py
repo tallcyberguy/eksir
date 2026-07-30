@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters import defender_adapter, integration_store
 from ..auth.deps import current_user
+from ..auth.permissions import require_permission
 from ..db.models import AuditLog, User
 from ..db.session import get_session
 from ..logging_config import get_logger
@@ -166,7 +167,7 @@ async def search_machines(
 async def isolate(
     body: IsolateRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission("actions:isolate")),
 ):
     creds = await _resolve(body.customer)
     try:
@@ -199,7 +200,7 @@ async def isolate(
 async def unisolate(
     body: UnisolateRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission("actions:isolate")),
 ):
     creds = await _resolve(body.customer)
     try:
@@ -227,7 +228,7 @@ async def unisolate(
 async def scan(
     body: ScanRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission("actions:scan")),
 ):
     creds = await _resolve(body.customer)
     try:
@@ -263,7 +264,7 @@ async def scan(
 async def blocklist(
     body: BlocklistRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission("actions:blocklist")),
 ):
     """Create a Defender custom indicator (blocklist entry) — Ti.ReadWrite."""
     creds = await _resolve(body.customer)
@@ -327,7 +328,7 @@ async def _set_user_enabled(body, session, user, *, enabled: bool, action: str):
 async def disable_user(
     body: UserActionRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission("actions:disable_user")),
 ):
     """Disable an Entra user account (identity containment)."""
     return await _set_user_enabled(body, session, user, enabled=False, action="disable_user")
@@ -337,7 +338,7 @@ async def disable_user(
 async def enable_user(
     body: UserActionRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission("actions:disable_user")),
 ):
     """Re-enable a previously disabled Entra user account."""
     return await _set_user_enabled(body, session, user, enabled=True, action="enable_user")

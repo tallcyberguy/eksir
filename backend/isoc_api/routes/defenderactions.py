@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import audit
 from ..adapters import defender_adapter, integration_store
 from ..auth.deps import current_user
+from ..auth.permissions import require_permission
 from ..auth.tenancy import TenantScope, current_tenant_scope, require_in_scope
 from ..db.models import Incident, TimelineEvent, User
 from ..db.session import get_session
@@ -150,7 +151,7 @@ async def isolate_machine(
     incident_id: uuid.UUID,
     body: IsolateRequest,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_user),
+    user=Depends(require_permission("actions:isolate")),
     scope: TenantScope = Depends(current_tenant_scope),
 ):
     inc = await _get_incident(incident_id, session, scope)
@@ -186,7 +187,7 @@ async def unisolate_machine(
     incident_id: uuid.UUID,
     body: UnisolateRequest,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_user),
+    user=Depends(require_permission("actions:isolate")),
     scope: TenantScope = Depends(current_tenant_scope),
 ):
     inc = await _get_incident(incident_id, session, scope)
@@ -216,7 +217,7 @@ async def blocklist(
     incident_id: uuid.UUID,
     body: BlocklistRequest,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_user),
+    user=Depends(require_permission("actions:blocklist")),
     scope: TenantScope = Depends(current_tenant_scope),
 ):
     """Create a Defender custom indicator (blocklist entry) — Ti.ReadWrite."""
@@ -279,7 +280,7 @@ async def disable_user(
     incident_id: uuid.UUID,
     body: UserActionRequest,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_user),
+    user=Depends(require_permission("actions:disable_user")),
     scope: TenantScope = Depends(current_tenant_scope),
 ):
     """Disable an Entra user account (identity containment) — User.EnableDisableAccount.All."""
@@ -293,7 +294,7 @@ async def enable_user(
     incident_id: uuid.UUID,
     body: UserActionRequest,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_user),
+    user=Depends(require_permission("actions:disable_user")),
     scope: TenantScope = Depends(current_tenant_scope),
 ):
     """Re-enable a previously disabled Entra user account."""
@@ -346,7 +347,7 @@ async def scan_machine(
     incident_id: uuid.UUID,
     body: ScanRequest,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_user),
+    user=Depends(require_permission("actions:scan")),
     scope: TenantScope = Depends(current_tenant_scope),
 ):
     inc = await _get_incident(incident_id, session, scope)

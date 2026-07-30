@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters import integration_store, v1_adapter
 from ..auth.deps import current_user
+from ..auth.permissions import require_permission
 from ..db.models import AuditLog, User
 from ..db.session import get_session
 from ..logging_config import get_logger
@@ -154,7 +155,7 @@ async def get_endpoint(
 async def add_to_blocklist(
     body: BlocklistRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission("actions:blocklist")),
 ):
     creds = await _resolve(body.customer)
     try:
@@ -191,7 +192,7 @@ async def add_to_blocklist(
 async def isolate_endpoint(
     body: EndpointActionRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission("actions:isolate")),
 ):
     creds = await _resolve(body.customer)
     try:
@@ -217,7 +218,7 @@ async def isolate_endpoint(
 async def restore_endpoint(
     body: EndpointActionRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission("actions:isolate")),
 ):
     creds = await _resolve(body.customer)
     try:
@@ -243,7 +244,7 @@ async def restore_endpoint(
 async def collect_file(
     body: CollectFileRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission("actions:collect")),
 ):
     creds = await _resolve(body.customer)
     try:

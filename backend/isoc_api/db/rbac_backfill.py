@@ -13,7 +13,13 @@ from __future__ import annotations
 from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from ..auth.permissions import ALL_PERMS, CATALOGUE, STATIC_FALLBACK, WILDCARD
+from ..auth.permissions import (
+    ALL_PERMS,
+    CATALOGUE,
+    EXTRA_SYSTEM_ROLES,
+    STATIC_FALLBACK,
+    WILDCARD,
+)
 from ..db.enums import Role
 from ..logging_config import get_logger
 
@@ -65,5 +71,29 @@ async def seed_rbac(engine: AsyncEngine) -> None:
                         "ON CONFLICT DO NOTHING"
                     ),
                     {"role": str(role), "perm": perm},
+                )
+
+        # Extra seeded system roles (e.g. "L2 Analyst") beyond the coarse mirrors.
+        for rname, (rdesc, rperms) in EXTRA_SYSTEM_ROLES.items():
+            await conn.execute(
+                sql_text(
+                    "INSERT INTO roles (id, tenant_id, name, description, is_system, "
+                    "created_at, updated_at) "
+                    "SELECT gen_random_uuid(), NULL, cast(:name AS varchar), "
+                    "cast(:desc AS text), true, now(), now() "
+                    "WHERE NOT EXISTS (SELECT 1 FROM roles "
+                    "WHERE name = cast(:name AS varchar) AND tenant_id IS NULL)"
+                ),
+                {"name": rname, "desc": rdesc},
+            )
+            for perm in rperms:
+                await conn.execute(
+                    sql_text(
+                        "INSERT INTO role_permissions (role_id, permission_id) "
+                        "SELECT r.id, p.id FROM roles r, permissions p "
+                        "WHERE r.name = :role AND r.tenant_id IS NULL AND p.name = :perm "
+                        "ON CONFLICT DO NOTHING"
+                    ),
+                    {"role": rname, "perm": perm},
                 )
     logger.info("rbac.seeded")
