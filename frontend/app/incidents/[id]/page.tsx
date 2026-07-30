@@ -22,7 +22,7 @@ import { AttackPathPanel } from "@/components/incidents/AttackPathPanel";
 import { IncidentCollaboration } from "@/components/incidents/IncidentCollaboration";
 import { defang, severityPill, statusPill, verdictPill } from "@/lib/utils";
 import type { IncidentEntityLink, ClusterSummary } from "@/lib/api";
-import { Pencil, Check, X, FileText, UserPlus, UserCheck } from "lucide-react";
+import { Pencil, Check, X, FileText, UserPlus, UserCheck, ArrowUpCircle } from "lucide-react";
 
 type Tab = "summary"|"details"|"technical"|"timeline"|"attack-path"|"hunt"|"actions"|"forensics"|"llm";
 
@@ -173,6 +173,20 @@ export default function IncidentDetail() {
     finally { setBusy(false); }
   }
 
+  // Escalate to L2 (an L1 hands off a case they can't action). Surfaces to L2
+  // via the "Escalated" filter on the incidents list.
+  async function escalate() {
+    const note = window.prompt("Escalate to L2 (optional note, why):") ?? undefined;
+    setBusy(true);
+    try { await api.escalateIncident(id, note || undefined); await refresh(); }
+    finally { setBusy(false); }
+  }
+  async function deescalate() {
+    setBusy(true);
+    try { await api.deescalateIncident(id); await refresh(); }
+    finally { setBusy(false); }
+  }
+
   // Verdict click opens a modal to capture the analyst's "why" (optional) —
   // that reason is indexed to Qdrant so future identical alerts retrieve it.
   async function confirmVerdict(reason: string) {
@@ -266,6 +280,27 @@ export default function IncidentDetail() {
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-line text-xs text-muted hover:border-accent hover:text-accent disabled:opacity-40 transition-colors"
             >
               <UserPlus size={12}/> {inc.assignee_id ? "Take over" : "Assign to me"}
+            </button>
+          )}
+
+          {/* L1 → L2 escalation */}
+          {inc.escalated_at ? (
+            <span
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs bg-warning/10 text-warning border border-warning/40"
+              title={`Escalated to L2${inc.escalation_note ? `: ${inc.escalation_note}` : ""}`}
+            >
+              <ArrowUpCircle size={12}/> Escalated to L2
+              <button onClick={deescalate} disabled={busy} title="Clear escalation"
+                      className="ml-1 text-muted hover:text-danger disabled:opacity-40"><X size={11}/></button>
+            </span>
+          ) : (
+            <button
+              onClick={escalate}
+              disabled={busy}
+              title="Escalate this incident to an L2 analyst"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-line text-xs text-muted hover:border-warning hover:text-warning disabled:opacity-40 transition-colors"
+            >
+              <ArrowUpCircle size={12}/> Escalate to L2
             </button>
           )}
 

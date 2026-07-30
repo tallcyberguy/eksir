@@ -11,7 +11,7 @@ import useSWR from "@/lib/swr-shim";
 import {
   Search, ArrowUpDown, ArrowDown, ArrowUp, X,
   Trash2, RotateCcw, Archive, Download, MoreHorizontal, Eye, EyeOff,
-  ChevronLeft, ChevronRight, UserCheck,
+  ChevronLeft, ChevronRight, UserCheck, ArrowUpCircle,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -24,12 +24,13 @@ interface Filters {
   severity: string;
   verdict: string;
   customer: string;
+  escalated: "" | "true";               // "true" = only L2-escalated (the L2 queue)
   sort: "asc" | "desc";
   include_deleted: "false" | "true";   // "true" = only archived (admin only)
 }
 
 const EMPTY: Filters = {
-  q: "", status: "", severity: "", verdict: "", customer: "",
+  q: "", status: "", severity: "", verdict: "", customer: "", escalated: "",
   sort: "desc", include_deleted: "false",
 };
 
@@ -39,7 +40,7 @@ const VERDICTS  = ["TP","FP","benign","pending"];
 const PAGE_SIZES = [10, 25, 50, 100];
 
 function hasActiveFilters(f: Filters) {
-  return f.q || f.status || f.severity || f.verdict || f.customer || f.sort === "asc";
+  return f.q || f.status || f.severity || f.verdict || f.customer || f.escalated || f.sort === "asc";
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────
@@ -92,6 +93,7 @@ function IncidentsInner() {
   if (filters.severity) params.severity = filters.severity;
   if (filters.verdict)  params.verdict  = filters.verdict;
   if (filters.customer) params.customer = filters.customer;
+  if (filters.escalated) params.escalated = filters.escalated;
 
   const swrKey = "incidents:" + JSON.stringify(params);
   const { data, isLoading, mutate } = useSWR(swrKey, () => api.listIncidents(params));
@@ -99,7 +101,7 @@ function IncidentsInner() {
   const total: number = data?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
-  const activeCount = [filters.status, filters.severity, filters.verdict, filters.customer]
+  const activeCount = [filters.status, filters.severity, filters.verdict, filters.customer, filters.escalated]
     .filter(Boolean).length;
 
   // Selection helpers
@@ -229,6 +231,18 @@ function IncidentsInner() {
             {filters.sort === "desc"
               ? <><ArrowDown size={13}/> Newest</>
               : <><ArrowUp size={13}/> Oldest</>}
+          </button>
+
+          {/* Escalated-only (the L2 queue) */}
+          <button
+            onClick={() => set("escalated", filters.escalated === "true" ? "" : "true")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-md
+              ${filters.escalated === "true"
+                ? "border-warning text-warning"
+                : "border-line text-muted hover:text-text hover:border-accent"}`}
+            title="Show only incidents escalated to L2"
+          >
+            <ArrowUpCircle size={13}/> Escalated
           </button>
 
           {/* Show archived (admin only) */}
@@ -366,6 +380,14 @@ function IncidentsInner() {
                           aria-label={`cluster of ${r.cluster_size} related incidents`}
                         >
                           <span aria-hidden="true">◇{r.cluster_size}</span>
+                        </span>
+                      )}
+                      {r.escalated_at && (
+                        <span
+                          className="ml-1.5 inline-flex items-center gap-0.5 text-[9px] text-warning border border-warning/40 rounded px-1 py-0.5 align-middle"
+                          title="Escalated to L2"
+                        >
+                          <ArrowUpCircle size={9}/> L2
                         </span>
                       )}
                     </td>

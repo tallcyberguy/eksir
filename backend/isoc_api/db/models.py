@@ -260,6 +260,15 @@ class Incident(Base, UUIDMixin, TimestampMixin):
     snoozed_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
+    # L1 → L2 escalation. Orthogonal to status/gate (like the queue): escalated
+    # = escalated_at IS NOT NULL. Set by POST /incidents/{id}/escalate. New
+    # columns on an EXISTING table → added by db/escalation_backfill.py (+ Alembic
+    # 0017), NOT create_all.
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    escalated_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    escalation_note: Mapped[str | None] = mapped_column(Text)
 
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # F1 — gate attribution: who signed off the verdict and when. Set ONLY at the

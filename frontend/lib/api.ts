@@ -417,6 +417,11 @@ export const api = {
       `/incidents/${id}/assign`,
       { method: "POST", body: JSON.stringify({ assignee_id: assignee_id ?? null }) },
     ),
+  // L1 → L2 escalation. escalateIncident is idempotent; deescalate clears it.
+  escalateIncident: (id: string, note?: string) =>
+    request<any>(`/incidents/${id}/escalate`, { method: "POST", body: JSON.stringify({ note }) }),
+  deescalateIncident: (id: string) =>
+    request<any>(`/incidents/${id}/deescalate`, { method: "POST" }),
   regenerate: (id: string) =>
     request<any>(`/incidents/${id}/regenerate-report`, { method: "POST" }),
   // Human gate: approve the manager's proposed verdict (+ checked response

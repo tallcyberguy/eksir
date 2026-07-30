@@ -172,6 +172,7 @@ def _build_incident_filter(
     customer: str | None,
     q: str | None,
     include_deleted: str,
+    escalated: bool | None = None,
 ):
     """Shared WHERE-clause builder. `include_deleted` is "false" (default — hide
     archived), "true" (show only archived), or "all" (show both). The endpoint
@@ -188,6 +189,10 @@ def _build_incident_filter(
         conditions.append(Incident.severity == severity)
     if verdict:
         conditions.append(Incident.verdict == verdict)
+    if escalated is True:
+        conditions.append(Incident.escalated_at.is_not(None))
+    elif escalated is False:
+        conditions.append(Incident.escalated_at.is_(None))
     if customer:
         conditions.append(Incident.customer.ilike(f"%{customer}%"))
     if q:
@@ -213,6 +218,7 @@ async def list_incidents(
     verdict: Verdict | None = None,
     customer: str | None = None,
     q: str | None = None,  # free-text: title + rule_name
+    escalated: bool | None = None,  # true = only L2-escalated; false = only non-escalated
     sort: str = Query(default="desc", pattern="^(asc|desc)$"),  # newest-first by default
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
@@ -237,6 +243,7 @@ async def list_incidents(
         customer,
         q,
         include_deleted,
+        escalated=escalated,
     )
 
     # Total count (matches the filters but ignores pagination). One extra query
@@ -382,6 +389,118 @@ async def assign_incident(
         "claimed_at": inc.claimed_at.isoformat() if inc.claimed_at else None,
         "first_claim": first_claim,
     }
+
+
+async def _notify_escalation(session: AsyncSession, inc: Incident, *, actor: User) -> None:
+    """In-app notify the incident's watchers that it was escalated to L2 (best-
+    effort). L2 analysts primarily discover escalations via the `escalated=true`
+    queue filter; once the L2 role ships (PR l1-l2-action-gating), this can also
+    notify active L2-role users."""
+    watcher_ids = await _incident_watcher_ids(session, inc.id)
+    await notify.notify_users(
+        session,
+        watcher_ids,
+        kind="escalation",
+        title=f"Escalated to L2: {inc.case_number}",
+        body=inc.title or None,
+        link=f"/incidents/{inc.id}",
+        actor_id=actor.id,
+    )
+
+
+class EscalateIn(BaseModel):
+    note: str | None = None  # optional one-line reason
+
+
+@router.post("/{incident_id}/escalate")
+async def escalate_incident(
+    incident_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(require_analyst)],
+    scope: Annotated[TenantScope, Depends(current_tenant_scope)],
+    body: EscalateIn | None = None,
+) -> dict[str, Any]:
+    """Escalate an incident to L2 (an L1 hands off a case they can't action, e.g.
+    when a critical response action needs L2). Idempotent: a no-op if already
+    escalated. Escalated incidents surface to L2 via the `escalated=true` filter.
+    """
+    now = datetime.now(timezone.utc)
+    inc = await session.get(Incident, incident_id)
+    if not inc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "incident not found")
+    require_in_scope(inc.tenant_id, scope)
+
+    if inc.escalated_at is not None:
+        return {
+            "escalated_at": inc.escalated_at.isoformat(),
+            "escalated_by_id": str(inc.escalated_by_id) if inc.escalated_by_id else None,
+            "already": True,
+        }
+
+    note = (body.note.strip() if body and body.note else None) or None
+    inc.escalated_at = now
+    inc.escalated_by_id = user.id
+    inc.escalation_note = note
+    session.add(
+        TimelineEvent(
+            incident_id=inc.id,
+            ts=now,
+            actor=user.email,
+            event_type="escalated_l2",
+            display="Escalated to L2" + (f": {note}" if note else ""),
+        )
+    )
+    await audit.log(
+        session,
+        user_id=user.id,
+        action="incident.escalate",
+        target_type="incident",
+        target_id=incident_id,
+        tenant_id=inc.tenant_id,
+        diff={"note": note},
+    )
+    await _notify_escalation(session, inc, actor=user)
+    await session.commit()
+    return {"escalated_at": now.isoformat(), "escalated_by_id": str(user.id)}
+
+
+@router.post("/{incident_id}/deescalate")
+async def deescalate_incident(
+    incident_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(require_analyst)],
+    scope: Annotated[TenantScope, Depends(current_tenant_scope)],
+) -> dict[str, Any]:
+    """Clear an incident's L2 escalation (idempotent)."""
+    now = datetime.now(timezone.utc)
+    inc = await session.get(Incident, incident_id)
+    if not inc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "incident not found")
+    require_in_scope(inc.tenant_id, scope)
+    if inc.escalated_at is None:
+        return {"escalated_at": None, "already": True}
+    inc.escalated_at = None
+    inc.escalated_by_id = None
+    inc.escalation_note = None
+    session.add(
+        TimelineEvent(
+            incident_id=inc.id,
+            ts=now,
+            actor=user.email,
+            event_type="deescalated",
+            display="Escalation cleared",
+        )
+    )
+    await audit.log(
+        session,
+        user_id=user.id,
+        action="incident.deescalate",
+        target_type="incident",
+        target_id=incident_id,
+        tenant_id=inc.tenant_id,
+    )
+    await session.commit()
+    return {"escalated_at": None}
 
 
 @router.get("/{incident_id}/hunt-evidence")
