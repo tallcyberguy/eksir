@@ -6,6 +6,7 @@ import secrets
 import uuid
 from typing import Annotated
 
+from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -16,7 +17,7 @@ from ..adapters.connectors import registry as _connector_registry
 from ..auth.deps import require_admin
 from ..auth.security import hash_password
 from ..auth.tenancy import slugify
-from ..db.enums import Role, TenantTier
+from ..db.enums import Role, TenantTier, UserStatus
 from ..db.models import (
     AutoCloseRule,
     Incident,
@@ -34,10 +35,45 @@ from ..llm.config_store import (
     invalidate_cache,
     mask_key,
 )
-from ..schemas import UserCreate, UserOut
+from ..logging_config import get_logger
+from ..queue import get_arq
+from ..schemas import (
+    AdminResetPasswordResult,
+    UserCreate,
+    UserCreateResult,
+    UserOut,
+    UserUpdate,
+)
 from ..security import url_safety
+from ..settings import settings
 
+logger = get_logger("isoc.admin")
 router = APIRouter()
+
+
+def _login_url() -> str:
+    return f"{settings.isoc_public_url.rstrip('/')}/login"
+
+
+async def _enqueue_credentials_email(
+    arq: ArqRedis, user: User, temp_password: str, *, kind: str
+) -> None:
+    """Hand the credentials email to the worker. Best-effort: a mail/queue hiccup
+    must never fail user creation or reset (the temp password is also returned once
+    in the API response, so onboarding does not depend on email delivery)."""
+    try:
+        await arq.enqueue_job(
+            "send_credentials_email",
+            {
+                "email": user.email,
+                "full_name": user.full_name or "",
+                "temp_password": temp_password,
+                "login_url": _login_url(),
+                "kind": kind,
+            },
+        )
+    except Exception as e:  # pragma: no cover - enqueue failure is non-fatal
+        logger.warning("credentials_email.enqueue_failed", error=str(e))
 
 
 async def _guard_console_url(url: str | None) -> None:
@@ -70,17 +106,22 @@ async def list_users(
     return [UserOut.model_validate(r) for r in rows]
 
 
-@router.post("/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+@router.post("/users", response_model=UserCreateResult, status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: UserCreate,
     session: Annotated[AsyncSession, Depends(get_session)],
     admin: Annotated[User, Depends(require_admin)],
-) -> UserOut:
+    arq: Annotated[ArqRedis, Depends(get_arq)],
+) -> UserCreateResult:
     if await session.scalar(select(User).where(User.email == body.email.lower())):
         raise HTTPException(status.HTTP_409_CONFLICT, "email exists")
+    # When the admin doesn't set a password, generate a temporary one. Only a
+    # generated password is echoed back (an admin-chosen one they already know).
+    generated = body.password is None
+    pw = body.password or secrets.token_urlsafe(12)
     user = User(
         email=body.email.lower(),
-        password_hash=hash_password(body.password),
+        password_hash=hash_password(pw),
         role=body.role,
         full_name=body.full_name,
     )
@@ -94,7 +135,87 @@ async def create_user(
         target_id=user.id,
         diff={"email": user.email, "role": str(user.role)},
     )
+    await _enqueue_credentials_email(arq, user, pw, kind="invite")
+    return UserCreateResult(
+        **UserOut.model_validate(user).model_dump(),
+        temp_password=pw if generated else None,
+    )
+
+
+@router.patch("/users/{user_id}", response_model=UserOut)
+async def update_user(
+    user_id: uuid.UUID,
+    body: UserUpdate,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    admin: Annotated[User, Depends(require_admin)],
+) -> UserOut:
+    """Edit a user's global role, status (enable/disable), or display name.
+
+    Authorization is DB-authoritative (`current_user` re-reads the User on every
+    request and disabled users are rejected there), so a role change or a disable
+    takes effect on the target's very next request, so no token_version bump is needed.
+    """
+    user = await session.get(User, user_id)
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+
+    # Self-lockout guards: an admin may not strip their own admin role or disable
+    # their own account, since either would revoke the session making the change.
+    if user.id == admin.id:
+        if body.role is not None and body.role != Role.ADMIN:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "cannot remove your own admin role")
+        if body.status is not None and body.status != UserStatus.ACTIVE:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "cannot disable your own account")
+
+    changes: dict = {}
+    if body.full_name is not None and body.full_name != user.full_name:
+        changes["full_name"] = body.full_name
+        user.full_name = body.full_name
+    if body.role is not None and body.role != user.role:
+        changes["role"] = {"from": str(user.role), "to": str(body.role)}
+        user.role = body.role
+    if body.status is not None and body.status != user.status:
+        changes["status"] = {"from": str(user.status), "to": str(body.status)}
+        user.status = body.status
+
+    if changes:
+        await audit.log(
+            session,
+            user_id=admin.id,
+            action="user.update",
+            target_type="user",
+            target_id=user.id,
+            diff=changes,
+        )
     return UserOut.model_validate(user)
+
+
+@router.post("/users/{user_id}/reset-password", response_model=AdminResetPasswordResult)
+async def reset_password(
+    user_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    admin: Annotated[User, Depends(require_admin)],
+    arq: Annotated[ArqRedis, Depends(get_arq)],
+) -> AdminResetPasswordResult:
+    """Set a fresh temporary password, revoke all outstanding sessions, and email
+    it to the user. The temp password is also returned once so the admin can relay
+    it when email delivery is not configured."""
+    user = await session.get(User, user_id)
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+    pw = secrets.token_urlsafe(12)
+    user.password_hash = hash_password(pw)
+    user.token_version += 1  # a reset must end every active session
+    await audit.log(
+        session,
+        user_id=admin.id,
+        action="user.reset_password",
+        target_type="user",
+        target_id=user.id,
+        diff={"email": user.email},
+    )
+    await _enqueue_credentials_email(arq, user, pw, kind="reset")
+    return AdminResetPasswordResult(temp_password=pw)
 
 
 @router.delete("/users/{user_id}", status_code=204)
@@ -106,6 +227,9 @@ async def delete_user(
     user = await session.get(User, user_id)
     if not user:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+    # Prevent self-deletion (an admin removing their own account mid-session).
+    if user.id == admin.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "cannot delete your own account")
     await audit.log(
         session,
         user_id=admin.id,

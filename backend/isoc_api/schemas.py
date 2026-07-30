@@ -81,9 +81,41 @@ class UserOut(BaseModel):
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=10)
+    # Optional: when omitted, the server generates a temporary password, emails
+    # it to the new user, and returns it once in UserCreateResult.temp_password.
+    password: str | None = Field(default=None, min_length=10)
     role: Role = Role.ANALYST
     full_name: str | None = None
+
+
+class UserCreateResult(UserOut):
+    """UserOut plus the one-time temporary password, populated only when the
+    server generated it (password omitted at create time). Shown once so the
+    admin can relay it if email delivery is not configured."""
+
+    temp_password: str | None = None
+
+
+class UserUpdate(BaseModel):
+    """Admin edit of a user. Every field optional; only provided ones change."""
+
+    role: Role | None = None
+    status: UserStatus | None = None
+    full_name: str | None = None
+
+
+class AdminResetPasswordResult(BaseModel):
+    """Returned by the admin password-reset endpoint. The temp password is shown
+    once (and emailed to the user); it is never stored in the clear."""
+
+    temp_password: str
+
+
+class PasswordChange(BaseModel):
+    """Self-service password change: prove the current password, set a new one."""
+
+    current_password: str
+    new_password: str = Field(min_length=10)
 
 
 # ── Alerts / Ingest ─────────────────────────────────────────────────────
