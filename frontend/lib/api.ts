@@ -862,6 +862,15 @@ export const api = {
     removeMember: (tenantId: string, membershipId: string) =>
       request<void>(`/admin/tenants/${tenantId}/members/${membershipId}`, { method: "DELETE" }),
 
+    // User-centric tenant memberships (for the Users page). A user with no
+    // membership sees no customers/incidents; assign tenants here to grant scope.
+    userTenants:   (userId: string) =>
+      request<{ membership_id: string; tenant_id: string; role: string; tenant_name: string; tenant_tier: string }[]>(`/admin/users/${userId}/tenants`),
+    addUserTenant: (userId: string, b: { tenant_id: string; role?: string }) =>
+      request<any>(`/admin/users/${userId}/tenants`, { method: "POST", body: JSON.stringify(b) }),
+    removeUserTenant: (userId: string, tenantId: string) =>
+      request<void>(`/admin/users/${userId}/tenants/${tenantId}`, { method: "DELETE" }),
+
     // Auto-close rules
     listAutoclose: () => request<any[]>("/admin/auto-close-rules"),
     createAutoclose: (b: {

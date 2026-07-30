@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import useSWR from "@/lib/swr-shim";
 import { api } from "@/lib/api";
 import { Panel } from "@/components/ui/Panel";
-import { Ban, CheckCircle2, Copy, KeyRound, Shield, Trash2, UserPlus, X } from "lucide-react";
+import { Ban, Building2, CheckCircle2, Copy, KeyRound, Shield, Trash2, UserPlus, X } from "lucide-react";
 
 const ROLES = ["admin", "analyst", "viewer"];
 
@@ -13,14 +13,18 @@ export default function UsersPage() {
   const { data: me } = useSWR("me", () => api.me());
   const { data: rolesData } = useSWR("rbac.customRoles", () =>
     api.rbac.listRoles().catch(() => ({ roles: [] })));
+  const { data: tenantsData } = useSWR("admin.tenants", () =>
+    api.admin.listTenants().catch(() => [] as any[]));
   const users = data || [];
   // Custom (non-system) RBAC roles are the assignable ones; the three coarse
   // roles (admin/analyst/viewer) stay on the Role column, not here.
   const customRoles = ((rolesData?.roles || []) as any[]).filter((r) => !r.is_system);
+  const allTenants = (tenantsData || []) as any[];
   const [form, setForm] = useState({ email: "", password: "", role: "analyst", full_name: "" });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);  // user id whose roles are open
+  // Which per-user panel (roles or tenants) is expanded, if any.
+  const [expanded, setExpanded] = useState<{ userId: string; panel: "roles" | "tenants" } | null>(null);
   // One-time credentials reveal (create with generated pw, or a reset).
   const [reveal, setReveal] = useState<{ email: string; temp_password: string } | null>(null);
 
@@ -101,7 +105,9 @@ export default function UsersPage() {
               {users.map((u: any) => {
                 const isSelf = me?.id === u.id;
                 const disabled = u.status === "disabled";
-                const isOpen = expanded === u.id;
+                const openPanel = expanded && expanded.userId === u.id ? expanded.panel : null;
+                const toggle = (panel: "roles" | "tenants") =>
+                  setExpanded(openPanel === panel ? null : { userId: u.id, panel });
                 return (
                   <Fragment key={u.id}>
                   <tr className="border-t border-line/60">
@@ -125,9 +131,14 @@ export default function UsersPage() {
                     </td>
                     <td className="py-2 pr-3">
                       <div className="flex items-center justify-end gap-3">
-                        <button onClick={() => setExpanded(isOpen ? null : u.id)}
+                        <button onClick={() => toggle("tenants")}
+                                title="Manage tenant access"
+                                className={openPanel === "tenants" ? "text-accent" : "text-muted hover:text-accent"}>
+                          <Building2 size={14}/>
+                        </button>
+                        <button onClick={() => toggle("roles")}
                                 title="Manage custom roles"
-                                className={isOpen ? "text-accent" : "text-muted hover:text-accent"}>
+                                className={openPanel === "roles" ? "text-accent" : "text-muted hover:text-accent"}>
                           <Shield size={14}/>
                         </button>
                         <button onClick={() => patch(u.id, { status: disabled ? "active" : "disabled" })}
@@ -148,10 +159,12 @@ export default function UsersPage() {
                       </div>
                     </td>
                   </tr>
-                  {isOpen && (
+                  {openPanel && (
                     <tr className="border-t border-line/30 bg-base/40">
                       <td colSpan={5} className="p-0">
-                        <RoleManager userId={u.id} customRoles={customRoles} onErr={setErr}/>
+                        {openPanel === "roles"
+                          ? <RoleManager userId={u.id} customRoles={customRoles} onErr={setErr}/>
+                          : <TenantManager userId={u.id} allTenants={allTenants} onErr={setErr}/>}
                       </td>
                     </tr>
                   )}
@@ -246,6 +259,74 @@ function RoleManager({ userId, customRoles, onErr }:
       {customRoles.length === 0 && (
         <div className="text-[11px] text-muted mt-2">
           No custom roles exist yet. Create one in the Roles tab, then assign it here.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Per-user tenant-access manager (expandable row). Assigning a tenant is what
+// gives a non-admin analyst visibility of that customer's incidents; with no
+// membership they see nothing. Chips = current memberships; dropdown adds one.
+function TenantManager({ userId, allTenants, onErr }:
+  { userId: string; allTenants: any[]; onErr: (m: string) => void }) {
+  const [memberships, setMemberships] = useState<any[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    api.admin.userTenants(userId).then(setMemberships).catch(() => setMemberships([]));
+  }, [userId]);
+  useEffect(() => { load(); }, [load]);
+
+  const assignedIds = new Set((memberships || []).map(m => m.tenant_id));
+  const addable = allTenants.filter(t => !assignedIds.has(t.id));
+
+  async function add(tenantId: string) {
+    if (!tenantId) return;
+    setBusy(true); onErr("");
+    try { await api.admin.addUserTenant(userId, { tenant_id: tenantId }); load(); }
+    catch (e: any) { onErr(e.message); }
+    finally { setBusy(false); }
+  }
+  async function remove(tenantId: string) {
+    setBusy(true); onErr("");
+    try { await api.admin.removeUserTenant(userId, tenantId); load(); }
+    catch (e: any) { onErr(e.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="px-3 py-3">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-muted mb-2">Tenant access</div>
+      <div className="flex flex-wrap items-center gap-2">
+        {memberships === null && <span className="text-xs text-muted">Loading…</span>}
+        {memberships && memberships.length === 0 && (
+          <span className="text-xs text-muted">
+            No tenant access yet. This user sees no customers or incidents until added to a tenant.
+          </span>
+        )}
+        {(memberships || []).map(m => (
+          <span key={m.tenant_id}
+                className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-0.5 rounded-full text-xs border border-line bg-surface">
+            {m.tenant_name}
+            <span className="text-[10px] text-muted">({m.role})</span>
+            <button onClick={() => remove(m.tenant_id)} disabled={busy} title="Remove tenant access"
+                    className="text-muted hover:text-danger disabled:opacity-40">
+              <X size={11}/>
+            </button>
+          </span>
+        ))}
+        {addable.length > 0 && (
+          <select value="" disabled={busy} onChange={e => add(e.target.value)}
+                  className="bg-base border border-line rounded-md px-2 py-1 text-xs">
+            <option value="">+ Add tenant…</option>
+            {addable.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        )}
+      </div>
+      {allTenants.length === 0 && (
+        <div className="text-[11px] text-muted mt-2">
+          No tenants exist yet. Tenants are created automatically from incident customers, or add one in the Tenants tab.
         </div>
       )}
     </div>
