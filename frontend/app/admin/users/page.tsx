@@ -1,20 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import useSWR from "@/lib/swr-shim";
 import { api } from "@/lib/api";
 import { Panel } from "@/components/ui/Panel";
-import { Ban, CheckCircle2, Copy, KeyRound, Trash2, UserPlus } from "lucide-react";
+import { Ban, CheckCircle2, Copy, KeyRound, Shield, Trash2, UserPlus, X } from "lucide-react";
 
 const ROLES = ["admin", "analyst", "viewer"];
 
 export default function UsersPage() {
   const { data, mutate } = useSWR("admin.users", () => api.admin.listUsers());
   const { data: me } = useSWR("me", () => api.me());
+  const { data: rolesData } = useSWR("rbac.customRoles", () =>
+    api.rbac.listRoles().catch(() => ({ roles: [] })));
   const users = data || [];
+  // Custom (non-system) RBAC roles are the assignable ones; the three coarse
+  // roles (admin/analyst/viewer) stay on the Role column, not here.
+  const customRoles = ((rolesData?.roles || []) as any[]).filter((r) => !r.is_system);
   const [form, setForm] = useState({ email: "", password: "", role: "analyst", full_name: "" });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);  // user id whose roles are open
   // One-time credentials reveal (create with generated pw, or a reset).
   const [reveal, setReveal] = useState<{ email: string; temp_password: string } | null>(null);
 
@@ -95,8 +101,10 @@ export default function UsersPage() {
               {users.map((u: any) => {
                 const isSelf = me?.id === u.id;
                 const disabled = u.status === "disabled";
+                const isOpen = expanded === u.id;
                 return (
-                  <tr key={u.id} className="border-t border-line/60">
+                  <Fragment key={u.id}>
+                  <tr className="border-t border-line/60">
                     <td className="py-2 pr-3 font-mono">
                       {u.email}
                       {isSelf && <span className="ml-2 text-[10px] text-muted">(you)</span>}
@@ -117,6 +125,11 @@ export default function UsersPage() {
                     </td>
                     <td className="py-2 pr-3">
                       <div className="flex items-center justify-end gap-3">
+                        <button onClick={() => setExpanded(isOpen ? null : u.id)}
+                                title="Manage custom roles"
+                                className={isOpen ? "text-accent" : "text-muted hover:text-accent"}>
+                          <Shield size={14}/>
+                        </button>
                         <button onClick={() => patch(u.id, { status: disabled ? "active" : "disabled" })}
                                 disabled={isSelf}
                                 title={isSelf ? "You can't disable your own account" : (disabled ? "Enable" : "Disable")}
@@ -135,6 +148,14 @@ export default function UsersPage() {
                       </div>
                     </td>
                   </tr>
+                  {isOpen && (
+                    <tr className="border-t border-line/30 bg-base/40">
+                      <td colSpan={5} className="p-0">
+                        <RoleManager userId={u.id} customRoles={customRoles} onErr={setErr}/>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
               {users.length === 0 && (
@@ -162,6 +183,71 @@ export default function UsersPage() {
         {pwTooShort && <div className="mt-2 text-[11px] text-danger">Password must be ≥ 10 characters (or blank).</div>}
         {err && <div className="mt-3 text-sm text-danger">{err}</div>}
       </Panel>
+    </div>
+  );
+}
+
+// Per-user custom-role manager (expandable row). Assigned roles show as chips
+// with a remove control; a dropdown adds any not-yet-assigned custom role.
+// Calls the RBAC endpoints (backend already gates them on roles:read/write).
+function RoleManager({ userId, customRoles, onErr }:
+  { userId: string; customRoles: any[]; onErr: (m: string) => void }) {
+  const [assigned, setAssigned] = useState<any[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    api.rbac.userRoles(userId).then(r => setAssigned(r.roles || [])).catch(() => setAssigned([]));
+  }, [userId]);
+  useEffect(() => { load(); }, [load]);
+
+  const assignedIds = new Set((assigned || []).map(r => r.id));
+  const addable = customRoles.filter(r => !assignedIds.has(r.id));
+
+  async function add(roleId: string) {
+    if (!roleId) return;
+    setBusy(true); onErr("");
+    try { await api.rbac.assignUserRole(userId, roleId); load(); }
+    catch (e: any) { onErr(e.message); }
+    finally { setBusy(false); }
+  }
+  async function remove(roleId: string) {
+    setBusy(true); onErr("");
+    try { await api.rbac.removeUserRole(userId, roleId); load(); }
+    catch (e: any) { onErr(e.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="px-3 py-3">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-muted mb-2">Custom roles</div>
+      <div className="flex flex-wrap items-center gap-2">
+        {assigned === null && <span className="text-xs text-muted">Loading…</span>}
+        {assigned && assigned.length === 0 && (
+          <span className="text-xs text-muted">No custom roles assigned.</span>
+        )}
+        {(assigned || []).map(r => (
+          <span key={r.id}
+                className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-0.5 rounded-full text-xs border border-line bg-surface">
+            {r.name}
+            <button onClick={() => remove(r.id)} disabled={busy} title="Remove role"
+                    className="text-muted hover:text-danger disabled:opacity-40">
+              <X size={11}/>
+            </button>
+          </span>
+        ))}
+        {addable.length > 0 && (
+          <select value="" disabled={busy} onChange={e => add(e.target.value)}
+                  className="bg-base border border-line rounded-md px-2 py-1 text-xs">
+            <option value="">+ Add role…</option>
+            {addable.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        )}
+      </div>
+      {customRoles.length === 0 && (
+        <div className="text-[11px] text-muted mt-2">
+          No custom roles exist yet. Create one in the Roles tab, then assign it here.
+        </div>
+      )}
     </div>
   );
 }
