@@ -207,6 +207,7 @@ def register_routes() -> None:
         mitre,
         mssp,
         notifications,
+        performance,
         queue,
         rbac,
         reports,
@@ -255,6 +256,7 @@ def register_routes() -> None:
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
     app.include_router(byok.router, prefix="/api/v1/admin/byok", tags=["byok"])
     app.include_router(costs.router, prefix="/api/v1/costs", tags=["costs"])
+    app.include_router(performance.router, prefix="/api/v1/performance", tags=["performance"])
     app.include_router(v1actions.router, prefix="/api/v1/v1actions", tags=["v1actions"])
     app.include_router(v1ops.router, prefix="/api/v1/v1ops", tags=["v1ops"])
     app.include_router(
