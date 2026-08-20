@@ -113,6 +113,61 @@ async function requestBlobUrl(path: string): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
+// POST a JSON body to an endpoint that answers with a file attachment, then save
+// it. Like requestBlobUrl, this exists because auth rides in a header and a plain
+// <a download> can't carry one. The server names the file via Content-Disposition;
+// `fallbackName` only covers a response that omits it.
+async function postDownload(
+  path: string,
+  body: unknown,
+  fallbackName: string,
+): Promise<void> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const t = token();
+  if (t) headers["Authorization"] = `Bearer ${t}`;
+  const scope = getActiveScope();
+  if (scope) headers["X-Tenant-Scope"] = scope;
+  const res = await fetch(`${BASE}/v1${path}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    // FastAPI sends `detail` as a string for HTTPException but as an ARRAY of
+    // objects for request-validation (422) errors. Stringifying the array gives
+    // "[object Object]", so flatten it to the messages the analyst can act on.
+    let detail = text;
+    try {
+      const d = JSON.parse(text).detail;
+      if (typeof d === "string") detail = d;
+      else if (Array.isArray(d)) detail = d.map((x) => x?.msg ?? JSON.stringify(x)).join("; ");
+      else if (d) detail = JSON.stringify(d);
+    } catch { /* plain-text error body */ }
+    throw new Error(detail || `Download failed: ${res.status}`);
+  }
+  const name =
+    /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "")?.[1] || fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// ── Defender advanced hunting ────────────────────────────────────────────────
+// `rows` are raw KQL result objects, so the key set varies per query; `columns` is
+// the server's canonical header (union across rows, Graph's @odata.* metadata keys
+// stripped) and is what the table renders against.
+export interface HuntResult {
+  count: number;
+  columns: string[];
+  rows: Record<string, unknown>[];
+}
+
 // ── Batch / historical import ────────────────────────────────────────────────
 export interface BatchImportJob {
   id: string;
@@ -620,6 +675,23 @@ export const api = {
       request<any>(`/defenderactions/${incidentId}/enable-user`, {
         method: "POST", body: JSON.stringify(body),
       }),
+    // Does THIS incident's customer have Defender creds? Gates the hunt panel on
+    // credentials rather than on the alert's source_product.
+    status: (incidentId: string) =>
+      request<{ configured: boolean; customer: string | null }>(
+        `/defenderactions/${incidentId}/status`,
+      ),
+    hunt: (incidentId: string, kql: string, maxRecords = 500) =>
+      request<HuntResult>(`/defenderactions/${incidentId}/hunt`, {
+        method: "POST",
+        body: JSON.stringify({ kql, format: "json", max_records: maxRecords }),
+      }),
+    huntCsv: (incidentId: string, kql: string, maxRecords = 500) =>
+      postDownload(
+        `/defenderactions/${incidentId}/hunt`,
+        { kql, format: "csv", max_records: maxRecords },
+        "defender-hunt.csv",
+      ),
   },
 
   // ── Customer notification cases ───────────────────────────────────
@@ -762,6 +834,17 @@ export const api = {
     enableUser:       (body: { customer: string; user_id: string; justification: string }) =>
       request<any>("/defenderops/enable-user", { method: "POST", body: JSON.stringify(body) }),
     history:          (limit = 25) => request<any[]>(`/defenderops/history?limit=${limit}`),
+    hunt: (customer: string, kql: string, maxRecords = 500) =>
+      request<HuntResult>("/defenderops/hunt", {
+        method: "POST",
+        body: JSON.stringify({ customer, kql, format: "json", max_records: maxRecords }),
+      }),
+    huntCsv: (customer: string, kql: string, maxRecords = 500) =>
+      postDownload(
+        "/defenderops/hunt",
+        { customer, kql, format: "csv", max_records: maxRecords },
+        "defender-hunt.csv",
+      ),
   },
 
   // ── Reports ───────────────────────────────────────────────────────

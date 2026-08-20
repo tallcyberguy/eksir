@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Panel } from "@/components/ui/Panel";
+import { KqlHuntPanel } from "@/components/defender/KqlHuntPanel";
 import {
   ShieldBan, ServerCrash, Wifi, WifiOff, FolderSearch, Search,
   Loader2, CheckCircle2, XCircle, ChevronDown, ChevronUp, History,
@@ -809,6 +810,12 @@ function DefenderTab() {
         <MdeBlockListPanel customer={customer}/>
         <MdeUserContainmentPanel customer={customer}/>
       </div>
+      <KqlHuntPanel
+        run={(kql, max) => api.defenderops.hunt(customer, kql, max)}
+        downloadCsv={(kql, max) => api.defenderops.huntCsv(customer, kql, max)}
+        disabled={!customer}
+        disabledHint="Select a tenant first."
+      />
       <HistoryPanel title="Recent Defender actions (audit log)" load={api.defenderops.history}/>
     </div>
   );

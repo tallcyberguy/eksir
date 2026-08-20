@@ -91,6 +91,15 @@ services:
       V1_ACTIVITY_SEARCH_ENABLED: ${V1_ACTIVITY_SEARCH_ENABLED:-false}
       V1_ACTIVITY_WINDOW_HOURS:   ${V1_ACTIVITY_WINDOW_HOURS:-24}
       V1_ACTIVITY_MAX_RECORDS:    ${V1_ACTIVITY_MAX_RECORDS:-200}
+      # Deep-tier LLM tools + Microsoft Defender read/hunt/action tools also run
+      # in the BACKEND (manager chat gate, L2 tool-calling, approve endpoint), so
+      # these flags must be exposed here; the worker's env_file doesn't reach it.
+      ISOC_ENABLE_LLM_TOOLS:             ${ISOC_ENABLE_LLM_TOOLS:-false}
+      DEFENDER_TOOLS_ENABLED:            ${DEFENDER_TOOLS_ENABLED:-false}
+      DEFENDER_STATUS_WRITEBACK_ENABLED: ${DEFENDER_STATUS_WRITEBACK_ENABLED:-false}
+      V1_STATUS_WRITEBACK_ENABLED:       ${V1_STATUS_WRITEBACK_ENABLED:-false}
+      MS_AUTOENRICH_ENABLED:             ${MS_AUTOENRICH_ENABLED:-false}
+      STRICT_TENANT_CREDS:               ${STRICT_TENANT_CREDS:-false}
       # Microsoft Graph mail — customer-notification send runs in the backend,
       # so the GRAPH_* creds must be here too (the worker gets them via env_file).
       GRAPH_TENANT_ID:        ${GRAPH_TENANT_ID:-}

@@ -27,7 +27,8 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters import defender_adapter, integration_store
@@ -35,6 +36,7 @@ from ..auth.deps import current_user
 from ..auth.permissions import require_permission
 from ..db.models import AuditLog, User
 from ..db.session import get_session
+from ..hunt import export as hunt_export
 from ..logging_config import get_logger
 
 logger = get_logger("isoc.defenderops")
@@ -121,6 +123,14 @@ class UserActionRequest(BaseModel):
     justification: str
 
 
+class HuntRequest(BaseModel):
+    customer: str
+    kql: str = Field(..., min_length=1, max_length=8000)
+    # csv re-runs the query and streams a file; json feeds the results table.
+    format: Literal["json", "csv"] = "json"
+    max_records: int = Field(500, ge=1, le=5000)
+
+
 # ── status / lookup ────────────────────────────────────────────────────────
 
 
@@ -158,6 +168,56 @@ async def search_machines(
         return {"items": rows, "query": term}
     except defender_adapter.DefenderError as e:
         raise HTTPException(e.status or 502, e.message)
+
+
+# ── ad-hoc advanced hunting (read-only) ────────────────────────────────────
+
+
+@router.post("/hunt")
+async def hunt(
+    body: HuntRequest,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(require_permission("actions:hunt")),
+):
+    """Run an analyst-authored advanced-hunting KQL query against one tenant.
+
+    Read-only (Graph ``runHuntingQuery`` cannot mutate), but it reads the tenant's
+    whole telemetry estate, so it is permission-gated and every run is audited with
+    the query text. ``format=csv`` re-runs the query and streams a file rather than
+    caching rows server-side; a second read-only query is cheaper than holding
+    result state, and it keeps the download honest about what is in the tenant now.
+    """
+    creds = await _resolve(body.customer)
+    try:
+        rows = await defender_adapter.run_hunting_query(
+            body.kql,
+            tenant_id=creds.oauth_tenant_id,
+            client_id=creds.client_id,
+            client_secret=creds.client_secret,
+            max_records=body.max_records,
+        )
+    except defender_adapter.DefenderError as e:
+        # Graph wraps the one actionable sentence in an envelope full of request-ids.
+        raise HTTPException(e.status or 502, hunt_export.graph_error_message(e.message))
+
+    await _audit(
+        session,
+        user,
+        "hunt",
+        "kql",
+        body.kql[:500],
+        {"customer": body.customer, "format": body.format, "row_count": len(rows)},
+    )
+
+    if body.format == "csv":
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        filename = hunt_export.download_filename(body.customer, stamp)
+        return StreamingResponse(
+            iter([hunt_export.to_csv_bytes(rows)]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    return {"count": len(rows), "columns": hunt_export.columns(rows), "rows": rows}
 
 
 # ── device response ────────────────────────────────────────────────────────

@@ -212,6 +212,10 @@ async def test_run_hunt_reports_disabled_when_flag_off(monkeypatch):
     """With the live-search flag off, the hunter stages queries only and the
     run_hunt result tells the manager it's disabled (so it won't over-promise)."""
     monkeypatch.setattr(manager_chat.settings, "v1_activity_search_enabled", False)
+    # _hunt_live_state reports "disabled_by_config" only when BOTH providers are
+    # off, so pin the Defender flag too. Leaving it to ambient config made this
+    # test pass or fail depending on whether DEFENDER_TOOLS_ENABLED was set.
+    monkeypatch.setattr(manager_chat.settings, "defender_tools_enabled", False)
 
     async def _noop_start(session, inc, stage):
         return 0.0

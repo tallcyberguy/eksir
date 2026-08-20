@@ -200,10 +200,18 @@ MANAGER_TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "run_hunt",
             "description": (
-                "Re-task the Threat Hunter. When the live Vision One search is enabled this "
-                "EXECUTES the endpoint-activity queries and returns results; otherwise it "
-                "stages queries + re-assesses spread. Call this whenever the analyst asks to "
-                "run / execute a hunt — do not just describe the queries."
+                "Re-task the Threat Hunter. THIS IS THE ONLY TOOL THAT CAN QUERY TELEMETRY: "
+                "sign-in / authentication logs, email events, device process and network "
+                "activity, file and URL activity. It writes the queries and, when a live "
+                "search is configured for this incident's EDR (Microsoft Defender advanced "
+                "hunting, or Trend Vision One endpoint activity), EXECUTES them and returns "
+                "the matching rows; otherwise it stages the queries for manual run. "
+                "Use it for ANY analyst request that needs data which is not already in the "
+                "briefing, however the analyst phrases it: 'review the sign-in logs for "
+                "user X', 'check whether anyone else received this email', 'did they click "
+                "the link', 'look for unusual activity', 'run the hunt'. Never answer such a "
+                "request by saying the data is unavailable without calling this first, and "
+                "never merely describe the queries instead of calling it."
             ),
             "parameters": {
                 "type": "object",
@@ -224,7 +232,15 @@ MANAGER_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "run_forensics",
-            "description": "Re-task the forensic analyst to reconstruct a timeline / establish root cause, with an optional analyst directive.",
+            "description": (
+                "Re-task the forensic analyst to reconstruct a timeline or establish root "
+                "cause. REASONING ONLY over evidence ALREADY in the briefing. It has NO "
+                "tools and CANNOT fetch logs, run queries, or reach any EDR. Sending it a "
+                "request for telemetry that is not already on hand just returns 'the data is "
+                "missing', which helps nobody. Use it to INTERPRET what is already known "
+                "(ordering events, establishing root cause, judging scope). To OBTAIN data, "
+                "use run_hunt instead."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"instruction": {"type": "string"}},

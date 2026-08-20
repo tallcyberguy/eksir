@@ -11,6 +11,7 @@ import { ProgressRail } from "@/components/incidents/ProgressRail";
 import { V1Actions, BlocklistButton, ExcludeButton } from "@/components/incidents/V1Actions";
 import { V1ActionsLog } from "@/components/incidents/V1ActionsLog";
 import { DefenderActions } from "@/components/incidents/DefenderActions";
+import { IncidentHuntPanel } from "@/components/defender/IncidentHuntPanel";
 import { SimilarCasesPanel } from "@/components/incidents/SimilarCasesPanel";
 import { EntitiesPanel } from "@/components/incidents/Entities";
 import { RelatedIncidentsPanel } from "@/components/incidents/RelatedIncidentsPanel";
@@ -520,6 +521,9 @@ export default function IncidentDetail() {
           {inc.normalized?.source_product === "microsoft_defender" && (
             <DefenderActions incidentId={inc.id} alertId={inc.normalized?.alert_id} />
           )}
+          {/* Gated on the customer's Defender creds, not the alert's source, since an
+              email/SIEM alert about a user still needs Defender telemetry. */}
+          <IncidentHuntPanel incidentId={inc.id} />
         </div>
       )}
 
