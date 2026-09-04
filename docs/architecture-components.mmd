@@ -1,38 +1,63 @@
+---
+title: "EKSIR / ISOC: component and service topology"
+---
 flowchart TB
+    %% =====================================================================
+    %% Last reviewed against the codebase: 2026-09-04
+    %% Source of truth: backend/isoc_api/{main,worker}.py, pipeline/, adapters/,
+    %% deploy/docker-compose.yml, frontend/app/
+    %% Regenerate the PNG (mermaid-cli is not a repo dependency):
+    %%   npx -y -p @mermaid-js/mermaid-cli mmdc \
+    %%     -i docs/architecture-components.mmd -o docs/architecture-components.png \
+    %%     -p docs/puppeteer.json -b '#0d1117' -w 2400 -t dark
+    %% =====================================================================
+
     %% ===== Ingestion =====
-    subgraph ING["Alert & Sample Ingestion"]
+    subgraph ING["Alert & sample ingestion"]
         direction LR
-        WH["Webhooks<br/>Wazuh · Suricata · QRadar · generic<br/>(HMAC-signed)"]
-        PASTE["Paste-text / Email / API"]
-        UPLOAD["File upload<br/>(forensics)"]
+        WH["Push webhooks<br/>/v1/ingest/{source}<br/>(HMAC-signed)"]
+        PULL["Pull connectors (cron, 1 min)<br/>Defender · Vision One · SentinelOne<br/>CrowdStrike · Cortex XDR · GuardDuty"]
+        BATCH["Batch import<br/>CSV / JSON backfill"]
+        UPLOAD["File upload<br/>(static forensics)"]
     end
 
     %% ===== Edge / UI =====
     CADDY["Caddy<br/>reverse proxy · auto-TLS<br/>:80 / :443"]
-    subgraph FE["Frontend"]
-        NEXT["Next.js 15 (App Router) :3000<br/>Dashboard · Incidents · Cases<br/>Forensics · Admin · Audit"]
+    subgraph FE["Frontend: Next.js 15 (App Router) :3000"]
+        direction LR
+        NEXT_OPS["Ops<br/>Dashboard · Incidents · Queue · Cases<br/>Hunt · Entities · MITRE · EASM · Forensics"]
+        NEXT_MGT["Management<br/>Reports · SLA · Shifts · Analytics<br/>MSSP · Knowledge base · Audit"]
+        NEXT_ADM["Admin<br/>Tenants · Users · Roles · Connectors<br/>Sources · Auto-close · Autonomy · Costs · Perf"]
     end
 
     %% ===== Backend =====
-    subgraph BE["Backend — FastAPI orchestrator :8000"]
+    subgraph BE["Backend: FastAPI orchestrator :8000"]
         direction TB
-        API["Routes<br/>webhooks · alerts · incidents · cases<br/>forensics · threat-intel · v1actions · admin · audit"]
-        AUTH["Auth<br/>JWT · RBAC · tenant-scoped"]
-        WORKER["ARQ Worker (async jobs)<br/>pipeline_run · synthesize_only<br/>forensics_static/triage · threat_intel_sync (cron)"]
-        subgraph PIPE["Pipeline modules"]
-            direction LR
-            NORM["normalizer"]
-            BRIEF["briefing.py"]
-            ENR["enrichment"]
-            AUTOC["auto-close YAML"]
-            HALL["hallucination check"]
+        API["~35 routers under /api/v1<br/>incidents · cases · alerts · hunt · entities<br/>reports · connectors · rbac · admin · byok<br/>defenderops/actions · v1ops/actions · copilot"]
+        AUTH["Auth & governance<br/>JWT · RBAC (L1/L2 analyst) · tenant scoping<br/>audit log · rate limit · exclusions"]
+        WORKER["ARQ worker (async jobs)<br/>pipeline_run · synthesize_only · pull_ingest<br/>batch_import · forensics_* · report_generate<br/>threat_intel_sync · notification emails"]
+        subgraph PIPE["Deterministic pipeline (pipeline/)"]
+            direction TB
+            P1["parse → OCSF (ocsf.py + connector parsers)"]
+            P2["auto_close_pre → dedup / RAG recall"]
+            P3["enrich (parallel) + deobfuscate + exclusions"]
+            P4["entities → correlate → decision gate"]
         end
+        subgraph SYN["Persona synthesis: LangGraph (synthesis_graph.py)"]
+            direction LR
+            L1["L1<br/>fast triage"]
+            L2["L2<br/>verdict + MITRE"]
+            HUNT["hunt?<br/>query build + live KQL"]
+            FOR["forensic?<br/>timeline / root cause"]
+            MGR["manager<br/>proposal + scoring"]
+        end
+        GATE{{"Human sign-off gate<br/>AWAITING_SIGNOFF<br/>Approve · Reject · Manager chat"}}
     end
 
     %% ===== Data layer =====
     subgraph DATA["Data layer"]
         direction LR
-        PG[("Postgres<br/>incidents · cases · llm_calls · config")]
+        PG[("Postgres<br/>incidents · cases · entities · users/roles<br/>connectors · reports · llm_calls · audit")]
         REDIS[("Redis<br/>ARQ queue · LiteLLM cache")]
         QD[("Qdrant<br/>alerts_v2 · iocs_v2 · knowledge_base_v2")]
     end
@@ -40,55 +65,68 @@ flowchart TB
     %% ===== AI layer =====
     subgraph AI["AI / LLM layer"]
         direction LR
-        LITELLM["LiteLLM router :4000<br/>isoc-fast / isoc-deep"]
-        OLLAMA["Ollama<br/>Seneca (8B, 16k) · bge-m3 embed"]
-        VLLM["vLLM (optional GPU)<br/>Qwen2.5"]
-        CLAUDE["Anthropic Claude<br/>(hosted, optional)"]
+        LITELLM["LiteLLM router :4000<br/>isoc-fast / isoc-deep · BYOK + cost tracking"]
+        OLLAMA["Ollama<br/>Seneca (8B) · bge-m3 embeddings"]
+        VLLM["vLLM (optional GPU profile)"]
+        CLAUDE["Anthropic Claude<br/>(hosted, current deep tier)"]
+        TOOLS["Read-only LLM tools<br/>lookup_ioc_history · get_endpoint_activity<br/>defender_run_hunt / machine / file+ip stats"]
     end
 
     %% ===== Analysis engines =====
     subgraph ANA["Analysis engines"]
         direction LR
-        REMNUX["REMnux (docker exec)<br/>peframe · capa · floss · YARA-Forge (11.6k)"]
-        TRIAGE["triage.py (subprocess)<br/>VT · AbuseIPDB · OTX · MB · ThreatFox"]
+        REMNUX["REMnux (docker exec, static only)<br/>peframe · capa · floss · YARA-Forge"]
+        TRIAGE["triage.py (subprocess)<br/>VT · AbuseIPDB · OTX · MalwareBazaar · ThreatFox"]
     end
 
     %% ===== External =====
     subgraph EXT["External services"]
         direction LR
-        FEEDS["OSINT TI feeds<br/>ET · Tor · abuse.ch (~91k IOCs)"]
-        V1["Trend Micro Vision One<br/>isolate · blocklist"]
-        SMTP["SMTP<br/>customer case delivery"]
+        FEEDS["OSINT TI feeds<br/>ET · Tor · abuse.ch"]
+        EDR["EDR / XDR APIs (per-tenant creds)<br/>Defender + MS Graph · Vision One<br/>SentinelOne · CrowdStrike"]
+        SMTP["SMTP<br/>customer cases · reports · notifications"]
+        DSP["docker-socket-proxy<br/>read-only container metrics"]
     end
 
     %% ===== Flows =====
     WH --> CADDY
-    PASTE --> CADDY
     UPLOAD --> CADDY
-    CADDY --> NEXT
-    NEXT -->|/api/v1/*| API
+    BATCH --> CADDY
+    CADDY --> FE
+    FE -->|/api/v1/*| API
+    PULL --> WORKER
     API --> AUTH
     API -->|enqueue| REDIS
     REDIS --> WORKER
     WORKER --> PIPE
+    P1 --> P2 --> P3 --> P4
+    P4 -->|confident: exact / n-way / auto-close| PG
+    P4 -->|ambiguous or any TP| SYN
+    L1 --> L2 --> HUNT --> FOR --> MGR
+    MGR --> GATE
 
-    NORM --> QD
-    ENR --> QD
-    ENR --> TRIAGE
-    ENR --> FEEDS
-    BRIEF --> LITELLM
+    P2 --> QD
+    P3 --> QD
+    P3 --> TRIAGE
+    P3 --> FEEDS
+    P3 --> EDR
+    SYN --> LITELLM
+    SYN --> TOOLS
+    TOOLS --> EDR
     WORKER --> REMNUX
     WORKER --> PG
+    WORKER --> SMTP
 
     LITELLM --> OLLAMA
     LITELLM --> VLLM
     LITELLM --> CLAUDE
-    ENR --> OLLAMA
     QD -.->|bge-m3 embeddings| OLLAMA
 
-    API --> V1
-    API --> SMTP
+    GATE -->|Approve: commit verdict| PG
+    GATE -->|Approve: index verified verdict| QD
+    GATE -->|Approve: run checked actions + status write-back| EDR
     API --> PG
+    API --> DSP
     TRIAGE --> FEEDS
 
     %% ===== Styling =====
@@ -96,7 +134,9 @@ flowchart TB
     classDef ai fill:#2a4d3a,stroke:#5fd38d,color:#dfffe9
     classDef ext fill:#5a3a1a,stroke:#e0a050,color:#ffe9cf
     classDef edge fill:#3a2a55,stroke:#b07fe0,color:#f0e6ff
+    classDef gate fill:#5c3a12,stroke:#f0a93b,color:#ffeccc,stroke-width:3px
     class PG,REDIS,QD store
-    class LITELLM,OLLAMA,VLLM,CLAUDE ai
-    class FEEDS,V1,SMTP,REMNUX,TRIAGE ext
-    class CADDY,NEXT edge
+    class LITELLM,OLLAMA,VLLM,CLAUDE,TOOLS ai
+    class FEEDS,EDR,SMTP,DSP,REMNUX,TRIAGE ext
+    class CADDY,NEXT_OPS,NEXT_MGT,NEXT_ADM edge
+    class GATE gate

@@ -10,7 +10,9 @@
 > not the "what".** For the current implemented state, **`docs/PIPELINE.md` is
 > canonical**; see also **ADR-0002** (local-LLM & ops), **ADR-0003** (EDR
 > integrations + gate tools), **ADR-0006** (connector framework), and the diagrams
-> `docs/architecture-components.png` + `docs/rag-pipeline-sequence.png`.
+> `docs/architecture-components.png` + `docs/rag-pipeline-sequence.png`
+> (**both refreshed against the code on 2026-09-04**, so where the ASCII sketch
+> below and the rendered diagrams disagree, the diagrams are right).
 >
 > **What changed since this was written (trust this list over the body below):**
 > - **LLM default:** the shipped config routes **both tiers to Claude** via LiteLLM

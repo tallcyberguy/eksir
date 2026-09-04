@@ -12,7 +12,9 @@ three are `_step_entities`/`_step_correlate`/`_step_decision` in
 below.
 
 > **Diagram:** see `docs/rag-pipeline-sequence.png` for the full sequence,
-> including the RAG retrieval and feedback-loop touch-points.
+> including the RAG retrieval, the LangGraph persona graph, the human sign-off
+> gate and the feedback-loop touch-points. Source: `docs/rag-pipeline-sequence.mmd`,
+> last reviewed against the code on **2026-09-04**.
 > **Default LLM:** the shipped config routes both tiers to **Claude** via LiteLLM
 > (`isoc-deep` → `claude-sonnet-4-5`, `isoc-fast` → `claude-haiku-4-5`; see
 > `config/litellm.config.yaml`). A local model (Seneca 8B via Ollama) or vLLM are
