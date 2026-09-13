@@ -137,7 +137,15 @@ jobs:
       - name: Run pip-audit
         working-directory: backend
         # Warn-only.
+        #
+        # --skip-editable, and NOT --strict. The project installs itself as an
+        # editable dependency (`pip install -e .`), and isoc-api is not on PyPI,
+        # so pip-audit can never resolve it. Under --strict that unauditable
+        # dependency is fatal: pip-audit aborted before reporting anything and
+        # the `|| true` swallowed it, so this job printed no findings at all.
+        # --skip-editable drops the local package; --strict on top of it still
+        # aborts, because the skip itself counts as unauditable.
         run: |
           echo "::group::pip-audit"
-          pip-audit --strict || true
+          pip-audit --skip-editable || true
           echo "::endgroup::"
