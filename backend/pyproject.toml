@@ -27,7 +27,7 @@ dependencies = [
 
     # Queue / cache
     "arq==0.28.0",
-    "redis==5.2.1",
+    "redis==8.0.1",
 
     # Vector DB (must match alert-memory-mcp's pin)
     "qdrant-client==1.18.0",
