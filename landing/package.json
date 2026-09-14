@@ -16,7 +16,7 @@
     "lucide-react": "0.469.0",
     "clsx": "2.1.1",
     "tailwind-merge": "2.5.5",
-    "nodemailer": "9.0.3"
+    "nodemailer": "9.1.1"
   },
   "devDependencies": {
     "@types/node": "22.10.2",
