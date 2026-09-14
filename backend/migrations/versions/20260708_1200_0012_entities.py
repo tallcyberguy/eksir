@@ -66,8 +66,7 @@ def upgrade() -> None:
         "ON incident_entities (incident_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_incident_entities_entity_id "
-        "ON incident_entities (entity_id)"
+        "CREATE INDEX IF NOT EXISTS ix_incident_entities_entity_id ON incident_entities (entity_id)"
     )
 
 

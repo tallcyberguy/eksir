@@ -1,75 +1,129 @@
+---
+title: "EKSIR / ISOC: alert pipeline, persona synthesis and the human gate"
+---
 sequenceDiagram
     autonumber
-    participant SRC as Alert Source<br/>(webhook / email / API)
+    %% =====================================================================
+    %% Last reviewed against the codebase: 2026-09-04
+    %% Source of truth: pipeline/orchestrator.py (run_pipeline step list),
+    %% pipeline/synthesis_graph.py + synthesis_steps.py, routes/cases.py
+    %% Regenerate the PNG (mermaid-cli is not a repo dependency):
+    %%   npx -y -p @mermaid-js/mermaid-cli mmdc \
+    %%     -i docs/rag-pipeline-sequence.mmd -o docs/rag-pipeline-sequence.png \
+    %%     -p docs/puppeteer.json -b '#0d1117' -w 2400 -t dark
+    %% =====================================================================
+    participant SRC as Alert source<br/>(webhook · pull connector · batch)
     participant API as ISOC API<br/>(FastAPI)
-    participant W as ARQ Worker<br/>(orchestrator)
-    participant N as Normalizer<br/>(alert-memory-mcp)
+    participant W as ARQ worker<br/>(orchestrator)
     participant E as bge-m3<br/>(Ollama embedder)
-    participant Q as Qdrant<br/>(vector DB)
-    participant TI as Enrichment<br/>(triage.py + TI feeds)
-    participant AC as Auto-Close<br/>(YAML rules)
-    participant B as briefing.py
-    participant LLM as LLM<br/>(Seneca / LiteLLM)
+    participant Q as Qdrant<br/>(vector memory)
+    participant TI as Enrichment<br/>(triage.py · TI feeds · ipinfo)
+    participant EDR as EDR / XDR APIs<br/>(per-tenant creds)
+    participant G as LangGraph<br/>(persona synthesis)
+    participant LLM as LiteLLM<br/>(fast / deep tier)
     participant DB as Postgres
+    participant AN as Analyst
 
-    SRC->>API: POST /webhooks/{source} (HMAC-signed alert)
-    API->>W: enqueue pipeline_run(alert)
-    W->>N: normalize(raw_alert)
-    N-->>W: NORMALIZED {fields, embed_text}
+    SRC->>API: POST /v1/ingest/{source} (HMAC) or cron pull_ingest
+    API->>W: enqueue pipeline_run(incident_id)
+
+    Note over W,DB: 1. parse: normalize to OCSF (pipeline/ocsf.py + connector parsers)
+    W->>DB: status = PARSED
+
+    Note over W: 2. auto_close_pre: YAML rules, pre-enrichment
+    W->>DB: AUTO_CLOSED_CANDIDATE (or continue)
 
     rect rgb(40, 30, 60)
-    Note over W,Q: RAG retrieval — semantic memory of past verdicts
+    Note over W,Q: 3. dedup: RAG recall, scoped to the same customer
     W->>E: embed(embed_text)
     E-->>W: dense vector (1024d)
-    W->>Q: hybrid_search(dense + sparse, k=10)
-    Q-->>W: EXACT_MATCH (score ≥ 0.90)
-    Q-->>W: N_WAY agreement (≥ 3/5 priors)
-    Q-->>W: SIMILAR (top-10 prior cases + verdicts)
-    W->>Q: kb_search(embed_text)
-    Q-->>W: KB_HITS (runbooks / allowlists / assets)
+    W->>Q: hybrid search (dense + sparse, RRF fused)
+    Q-->>W: EXACT_MATCH (cosine >= 0.90)
+    Q-->>W: N_WAY agreement (>= 3/5 priors, same tenant)
+    Q-->>W: SIMILAR (top-k priors + their verdicts)
     end
 
-    par Parallel enrichment
-        W->>TI: triage(extracted IOCs)
-        TI-->>W: VT / AbuseIPDB / OTX / MalwareBazaar / ThreatFox
+    rect rgb(30, 45, 60)
+    Note over W,EDR: 4. enrich: deobfuscate, then run the branches concurrently
+    W->>W: deobfuscate (base64 / encoded payloads) then re-extract IOCs
+    W->>W: apply analyst exclusions (ip · cidr · domain · hash · email domain)
+    par
+        W->>TI: triage(IOCs) VT · AbuseIPDB · OTX · MalwareBazaar · ThreatFox
+        TI-->>W: IOC reputation rows
     and
-        W->>TI: whois / rDNS / passive-DNS
-        TI-->>W: IP_ENRICHMENT
+        W->>TI: whois / rDNS / geo per public IP
+        TI-->>W: IP enrichment
     and
-        W->>TI: local feed match (~91k IOCs)
-        TI-->>W: THREAT_INTEL_MATCHES
+        W->>Q: kb_search(rule, customer)
+        Q-->>W: KB hits (runbooks · allowlists · assets)
+    and
+        W->>EDR: Vision One workbench + OAT autofetch (read-only, flagged)
+        EDR-->>W: workbench detail
+    end
+    Note right of W: return_exceptions=True: one dead branch never sinks the rest
     end
 
-    W->>AC: evaluate(normalized + enrichment)
-    AC-->>W: AUTOCLOSE_VERDICT (pre / post) or none
+    Note over W,DB: 5. entities: resolve OCSF entities into the entity store
+    Note over W,DB: 6. correlate: cluster related incidents
 
-    W->>B: render(normalized, RAG hits, enrichment, autoclose, temporal)
-    B-->>W: BRIEFING (markdown, capped sections)
+    Note over W: 7. decision gate
+    alt Confident: exact match · n-way agreement · auto-close
+        W->>DB: DECIDED_SHORT_CIRCUIT: no deep LLM spend
+    else Ambiguous, sensitive rule, or any TP
+        W->>DB: AWAITING_SYNTHESIS
+    end
 
     rect rgb(30, 50, 40)
-    Note over W,LLM: Tier-1 — fast classifier (cheap / local)
-    W->>LLM: complete(FAST_CLASSIFIER, briefing)
-    LLM-->>W: {verdict, confidence, reason} (JSON)
+    Note over W,LLM: 8. synthesis: LangGraph persona graph (MemorySaver checkpointer)
+    W->>G: run_synthesis_graph(incident)
+
+    G->>LLM: L1 fast classifier (briefing.py markdown)
+    LLM-->>G: TriageResult {verdict, confidence, reason}
+    opt Obvious low/med FP at HIGH confidence
+        G->>DB: DECIDED_SHORT_CIRCUIT: auto-closed, no gate
     end
 
-    alt Confident AND corroboration gate passes (exact≥0.9 / n_way≥3 / autoclose)
-        W->>W: short-circuit — skip deep synthesis (cap cost)
-    else Ambiguous, sensitive rule, or any TP
-        rect rgb(30, 50, 40)
-        Note over W,LLM: Tier-2 — deep synthesis
-        W->>LLM: complete(SYSTEM_PROMPT, briefing)
-        LLM-->>W: SOC analyst report (markdown)
-        end
-        W->>W: hallucination check (report IOCs ⊆ briefing IOCs)
+    G->>EDR: pre-L2 prefetch (Microsoft reputation · endpoint · identity)
+    EDR-->>G: deterministic MS enrichment slices
+    G->>LLM: L2 deep synthesis with read-only tools
+    LLM->>EDR: defender_run_hunt · get_machine · file/ip stats · lookup_ioc_history
+    EDR-->>LLM: tool results (surfaced on the incident timeline)
+    LLM-->>G: markdown report + fenced AnalysisVerdict JSON
+
+    opt agent_routing.should_hunt
+        G->>LLM: hunt persona (focus from L2)
+        LLM-->>G: HuntResult (queries + reasoning, live KQL when enabled)
+    end
+    opt agent_routing.should_run_forensics
+        G->>LLM: forensic persona
+        LLM-->>G: timeline + root cause
     end
 
-    rect rgb(40, 30, 60)
-    Note over W,Q: RAG feedback loop — today's verdict becomes tomorrow's prior
-    W->>E: embed(case + verdict)
-    E-->>W: vector
-    W->>Q: upsert(alert, verdict, human_verified flag)
+    G->>G: manager (deterministic): map verdict, build proposal + proposed_actions
+    G->>G: scoring.py: fused confidence + effective threat (0-100)
+    G->>DB: AWAITING_SIGNOFF (verdict still PENDING)
     end
 
-    W->>DB: persist incident + enrichment + llm_calls + transcript
-    DB-->>API: status = awaiting_review
-    API-->>SRC: 200 OK
+    Note over G,AN: Personas only PROPOSE. Nothing is committed yet.
+
+    rect rgb(60, 40, 20)
+    Note over AN,API: 9. Human sign-off gate: the only commit point
+    API-->>AN: incident parked at the gate (proposal + scores + actions)
+    opt Manager chat
+        AN->>API: POST /incidents/{id}/manager (directive)
+        API->>LLM: manager_chat tools: revise verdict/actions, re-task hunt/forensics
+        LLM-->>API: revised proposal (still uncommitted)
+    end
+    alt Approve
+        AN->>API: POST /incidents/{id}/approve (+ checked action ids)
+        API->>DB: commit verdict + audit entry
+        API->>Q: index verified verdict (RAG feedback loop)
+        API->>EDR: run approved actions (isolate · scan · blocklist · disable_user)
+        API->>EDR: verdict write-back / status mirror (flagged)
+    else Reject
+        AN->>API: POST /incidents/{id}/reject
+        API->>W: requeue=true: pipeline_synthesize_only, else AWAITING_REVIEW
+    end
+    end
+
+    Note over Q: Today's approved verdict becomes tomorrow's exact-match prior:<br/>the same alert then short-circuits at step 3 with no LLM spend.

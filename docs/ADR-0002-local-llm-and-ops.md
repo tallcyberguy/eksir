@@ -74,5 +74,10 @@ hits Qdrant via `QDRANT_URL`. The `llm_config` table is read only by
   token-budget guard in `client.py`.
 
 ## Reference diagrams
-- `docs/architecture-components.png` — full component/service topology
-- `docs/rag-pipeline-sequence.png` — alert RAG pipeline sequence
+Mermaid sources live next to the renders (`*.mmd`); each carries the regeneration
+command in its header comment. Last reviewed against the code on **2026-09-04**.
+- `docs/architecture-components.png` / `.mmd` — full component/service topology
+- `docs/rag-pipeline-sequence.png` / `.mmd` — alert pipeline, persona synthesis, human gate
+- `docs/isoc-architecture-overview.svg` / `.png` — hand-drawn conceptual overview (README figure).
+  The SVG is the source; regenerate the PNG with
+  `sips -s format png -z 1440 2560 docs/isoc-architecture-overview.svg --out docs/isoc-architecture-overview.png`.
