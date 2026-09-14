@@ -20,7 +20,8 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import audit
@@ -30,6 +31,7 @@ from ..auth.permissions import require_permission
 from ..auth.tenancy import TenantScope, current_tenant_scope, require_in_scope
 from ..db.models import Incident, TimelineEvent, User
 from ..db.session import get_session
+from ..hunt import export as hunt_export
 from ..logging_config import get_logger
 
 logger = get_logger("isoc.defenderactions")
@@ -143,7 +145,82 @@ class UserActionRequest(BaseModel):
     justification: str
 
 
+class HuntRequest(BaseModel):
+    kql: str = Field(..., min_length=1, max_length=8000)
+    # csv re-runs the query and streams a file; json feeds the results table.
+    format: Literal["json", "csv"] = "json"
+    max_records: int = Field(500, ge=1, le=5000)
+
+
 # ── routes ───────────────────────────────────────────────────────────────────
+
+
+@router.get("/{incident_id}/status")
+async def defender_status(
+    incident_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    _user: User = Depends(current_user),
+    scope: TenantScope = Depends(current_tenant_scope),
+):
+    """Whether THIS incident's customer has usable Defender credentials.
+
+    Drives whether the UI offers Defender tooling. Deliberately keyed on the
+    customer's credentials rather than on `source_product`: a phishing or SIEM alert
+    about a user still needs Defender sign-in and device telemetry, and gating on
+    the alert's origin would hide the hunt panel exactly when it is most needed.
+    Never leaks the credential itself, only whether one resolves.
+    """
+    inc = await _get_incident(incident_id, session, scope)
+    creds = await integration_store.get_creds("microsoft_defender", inc.customer)
+    configured = bool(creds and creds.client_id and creds.client_secret)
+    return {"configured": configured, "customer": inc.customer}
+
+
+@router.post("/{incident_id}/hunt")
+async def hunt(
+    incident_id: uuid.UUID,
+    body: HuntRequest,
+    session: AsyncSession = Depends(get_session),
+    user=Depends(require_permission("actions:hunt")),
+    scope: TenantScope = Depends(current_tenant_scope),
+):
+    """Run an analyst-authored advanced-hunting KQL query for this incident's tenant.
+
+    Read-only, but recorded on the incident timeline so the query that produced a
+    piece of evidence stays attached to the case. Same contract as the global
+    /defenderops/hunt: `format=csv` re-runs and streams a file instead of caching
+    rows server-side.
+    """
+    inc = await _get_incident(incident_id, session, scope)
+    creds = await _resolve_creds(inc)
+    try:
+        rows = await defender_adapter.run_hunting_query(
+            body.kql,
+            tenant_id=creds.oauth_tenant_id,
+            client_id=creds.client_id,
+            client_secret=creds.client_secret,
+            max_records=body.max_records,
+        )
+    except defender_adapter.DefenderError as e:
+        raise HTTPException(e.status or 502, hunt_export.graph_error_message(e.message))
+
+    await _log_action(
+        session,
+        inc,
+        "hunt",
+        {"kql": body.kql[:500], "format": body.format, "row_count": len(rows)},
+        user=user,
+    )
+
+    if body.format == "csv":
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        filename = hunt_export.download_filename(inc.case_number or str(inc.id), stamp)
+        return StreamingResponse(
+            iter([hunt_export.to_csv_bytes(rows)]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    return {"count": len(rows), "columns": hunt_export.columns(rows), "rows": rows}
 
 
 @router.post("/{incident_id}/isolate")

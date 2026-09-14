@@ -50,6 +50,10 @@ CATALOGUE: list[tuple[str, str, str]] = [
     ("actions:blocklist", "actions", "Blocklist an IOC on the EDR"),
     ("actions:scan", "actions", "Run an AV scan on an endpoint"),
     ("actions:collect", "actions", "Collect a file from an endpoint"),
+    # Read-only, but it runs analyst-authored queries against a customer's whole
+    # telemetry estate, so it is gated like the response actions rather than as a
+    # plain read: L2 only, never granted through the analyst (L1) fallback.
+    ("actions:hunt", "actions", "Run ad-hoc advanced-hunting queries against a tenant"),
     ("integrations:read", "integrations", "View integrations"),
     ("integrations:write", "integrations", "Manage integration credentials"),
     ("users:read", "users", "View users"),
@@ -117,7 +121,10 @@ CRITICAL_KINDS = frozenset(CRITICAL_ACTION_PERMISSION)
 
 # The L2-analyst response permissions. L2 = coarse `analyst` + the seeded
 # "L2 Analyst" RBAC role granting these (see EXTRA_SYSTEM_ROLES / rbac_backfill).
-_L2_ACTION_PERMS: set[str] = set(CRITICAL_ACTION_PERMISSION.values())
+# `actions:hunt` is added directly rather than through CRITICAL_ACTION_PERMISSION:
+# it gates an endpoint, not a proposed-action kind, so it must never make
+# `missing_action_permissions` demand it at the sign-off gate.
+_L2_ACTION_PERMS: set[str] = set(CRITICAL_ACTION_PERMISSION.values()) | {"actions:hunt"}
 
 # System RBAC roles seeded beyond the three coarse mirrors (name -> (desc, perms)).
 # Assigned to a user via the admin Users page to promote a coarse `analyst`
@@ -125,7 +132,7 @@ _L2_ACTION_PERMS: set[str] = set(CRITICAL_ACTION_PERMISSION.values())
 EXTRA_SYSTEM_ROLES: dict[str, tuple[str, set[str]]] = {
     "L2 Analyst": (
         "L2 analyst: may run critical response actions such as isolate host, "
-        "disable user, blocklist, scan, collect (system role)",
+        "disable user, blocklist, scan, collect, and ad-hoc threat hunts (system role)",
         set(_L2_ACTION_PERMS),
     ),
 }
