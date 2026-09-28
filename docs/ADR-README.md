@@ -21,10 +21,12 @@ editing the old one. Status reflects what actually shipped in code, not just wha
 | [0007](ADR-0007-edr-integrations-and-gate-tools.md) | Multi-tenant EDR/XDR integrations & gate-only live tools | Implemented for Microsoft Defender (the SentinelOne design in the body was not built as written) |
 | [0008](ADR-0008-procedures-library.md) | Procedures (SOP) library injected into persona prompts | Proposed (design only, not implemented) |
 | [0009](ADR-0009-live-hunt-and-manager-routing.md) | Pre-gate live hunt, expanded read tools & manager-owned hunt routing | Proposed (design only, not implemented; amends ADR-0007 #2) |
+| [0010](ADR-0010-logsign-siem-connector.md) | Logsign SIEM connector (alert ingest, Lucene hunt, feed-list response action) | Withdrawn (design only; dropped from scope 2026-09-28, never built) |
 
 ## Status vocabulary
 
 - **Proposed**: design captured, not yet built.
+- **Withdrawn**: design captured, then deliberately dropped from scope without being built. Kept as a record so the question does not resurface.
 - **Accepted**: decision agreed; may or may not be fully built yet (see the record's own banner).
 - **Accepted & Implemented**: agreed and fully shipped in code.
 - **Implemented**: realized in code (a record may note a scope caveat, e.g. ADR-0007 shipped against
