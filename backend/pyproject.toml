@@ -43,7 +43,7 @@ dependencies = [
 
     # Auth — use bcrypt directly (passlib is unmaintained and breaks on bcrypt 4.2+)
     "bcrypt==4.2.1",
-    "PyJWT==2.13.0",
+    "PyJWT==2.15.0",
     "pyotp==2.10.0",                # TOTP (RFC 6238) for optional per-user MFA
     "segno==1.6.6",                # pure-Python QR generation (MFA enrollment, inline data-URI)
     "stix2==3.0.2",                # STIX 2.1 export of analyst-confirmed IOCs (intel producer)
