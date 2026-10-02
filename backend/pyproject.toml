@@ -47,7 +47,7 @@ dependencies = [
     "pyotp==2.10.0",                # TOTP (RFC 6238) for optional per-user MFA
     "segno==1.6.6",                # pure-Python QR generation (MFA enrollment, inline data-URI)
     "stix2==3.0.2",                # STIX 2.1 export of analyst-confirmed IOCs (intel producer)
-    "weasyprint==69.0",            # HTML/CSS → PDF for branded reports (lazy-imported; needs native Pango/Cairo — see backend/Dockerfile)
+    "weasyprint==70.0",            # HTML/CSS → PDF for branded reports (lazy-imported; needs native Pango/Cairo — see backend/Dockerfile)
 
     # Utilities
     "httpx==0.28.1",
