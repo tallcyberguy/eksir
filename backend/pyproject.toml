@@ -108,3 +108,8 @@ ignore = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# The vendored alert-memory-mcp matcher lives at the repo root and is COPYed
+# to /opt/alert-memory-mcp in the image (on PYTHONPATH there). Host test runs
+# need it too, otherwise anything touching the real auto-close matcher is
+# untestable outside a container.
+pythonpath = ["../vendor/alert-memory-mcp"]

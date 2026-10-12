@@ -747,10 +747,12 @@ async def _step_enrich(session: AsyncSession, incident: Incident) -> None:
     # Post-enrichment auto-close pass
     post_fields = _alert_fields(incident.normalized or {})
     post_enrichment = {
-        "dst_asn": (ip_enrichments[0]["org"] if ip_enrichments else None),
-        "dst_hostnames": [
-            h.get("name") for r in triage_results for h in (r.get("hostnames") or [])
-        ][:10],
+        # "" not None: the matcher does `.get("dst_asn", "").lower()`, and the
+        # default never fires because the key is always set here. Same for the
+        # hostname elements below: a bare `h.get("name")` yields None for any
+        # triage record without that key, and the matcher calls `h.lower()`.
+        "dst_asn": (ip_enrichments[0].get("org") or "") if ip_enrichments else "",
+        "dst_hostnames": _post_enrichment_hostnames(triage_results),
         # triage.py is inconsistent about the field name (vt_malicious vs
         # virustotal_malicious) — read both so a malicious score under the
         # alternate key can't be misread as clean.
@@ -1913,6 +1915,18 @@ async def _check_hallucinations(
 
 
 # ── helpers ─────────────────────────────────────────────────────────────
+def _post_enrichment_hostnames(triage_results: list) -> list[str]:
+    """Hostnames from triage, dropping records that carry no usable name.
+
+    A bare `h.get("name")` yields None for any record without that key, and
+    the auto-close matcher calls `.lower()` on every element. Filtering here
+    keeps None out of the list in the first place.
+    """
+    return [
+        name for r in triage_results for h in (r.get("hostnames") or []) if (name := h.get("name"))
+    ][:10]
+
+
 def _alert_fields(normalized: dict) -> dict:
     """Project the normalized alert into the field-name shape auto_close expects.
 

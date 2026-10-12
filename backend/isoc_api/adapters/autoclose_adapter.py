@@ -115,6 +115,37 @@ def _coerce_alert_fields(alert_fields: dict[str, Any]) -> dict[str, Any]:
     return coerced
 
 
+def _coerce_enrichment(enrichment: dict[str, Any]) -> dict[str, Any]:
+    """The enrichment-side twin of `_coerce_alert_fields`, same trap.
+
+    The matcher reads `enrichment.get("dst_asn", "").lower()` and iterates
+    `h.lower() for h in enrichment["dst_hostnames"]`. Both keys are ALWAYS set
+    by the orchestrator's post-enrichment pass, so the `.get` defaults never
+    fire, and both can legitimately hold None:
+
+      * `dst_asn` is None whenever there was no public IP to enrich, or the
+        ipinfo branch failed (the enrich step maps a failed branch to []).
+      * `dst_hostnames` is built with a bare `h.get("name")`, so any triage
+        hostname record missing that key contributes a None ELEMENT.
+
+    Either one raises `AttributeError: 'NoneType' object has no attribute
+    'lower'` inside the matcher, which `check()` swallows into a None return
+    that is indistinguishable from "no rule matched", i.e. auto-close
+    silently stops working. Coerce here so the comparison just returns False.
+    """
+    coerced = dict(enrichment)
+    # `k in coerced`, not `.get(k) is None`: only neutralise a key that is
+    # PRESENT but None. Inventing an absent key would hand the matcher an
+    # empty string it was never given.
+    for k in ("dst_asn", "dst_hostname"):
+        if k in coerced and coerced[k] is None:
+            coerced[k] = ""
+    hostnames = coerced.get("dst_hostnames")
+    if isinstance(hostnames, list):
+        coerced["dst_hostnames"] = [h for h in hostnames if h]
+    return coerced
+
+
 async def check(
     alert_fields: dict[str, Any], enrichment: dict[str, Any] | None = None
 ) -> dict | None:
@@ -135,7 +166,7 @@ async def check(
 
         fields = _coerce_alert_fields(alert_fields)
         if enrichment is not None:
-            return checker.check(fields, enrichment=enrichment)
+            return checker.check(fields, enrichment=_coerce_enrichment(enrichment))
         return checker.check(fields)
     except Exception as e:
         logger.error("autoclose.failed", error=str(e))
@@ -154,8 +185,10 @@ def check_sync(
     try:
         checker = _checker()
         if enrichment is not None:
-            return checker.check(alert_fields, enrichment=enrichment)
-        return checker.check(alert_fields)
+            return checker.check(
+                _coerce_alert_fields(alert_fields), enrichment=_coerce_enrichment(enrichment)
+            )
+        return checker.check(_coerce_alert_fields(alert_fields))
     except Exception as e:
         logger.error("autoclose.failed", error=str(e))
         return None
